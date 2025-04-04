@@ -12,9 +12,23 @@ let currentCurrency: {
     formato_numero: string;
 } | null = null;
 
+// Variable para evitar múltiples solicitudes simultáneas
+let isFetchingCurrency = false;
+// Variable para almacenar la última vez que se cargó la moneda
+let lastCurrencyFetch = 0;
+// Tiempo mínimo entre solicitudes (5 minutos = 300000 ms)
+const CURRENCY_CACHE_TIME = 300000;
+
 // Función para cargar la moneda actual desde el servidor
 export async function loadCurrentCurrency(): Promise<void> {
+    // Si ya estamos obteniendo la moneda o si la obtuvimos recientemente, no hacemos otra solicitud
+    const now = Date.now();
+    if (isFetchingCurrency || (currentCurrency && (now - lastCurrencyFetch < CURRENCY_CACHE_TIME))) {
+        return;
+    }
+
     try {
+        isFetchingCurrency = true;
         const response = await axios.get('/api/moneda/actual');
         if (response.data) {
             currentCurrency = {
@@ -23,6 +37,8 @@ export async function loadCurrentCurrency(): Promise<void> {
                 locale: response.data.locale || 'es-PE',
                 formato_numero: response.data.formato_numero || 'S/0,0.00'
             };
+            // Actualizar tiempo de la última carga
+            lastCurrencyFetch = Date.now();
         }
     } catch (error) {
         console.error('Error al cargar la moneda actual:', error);
@@ -33,6 +49,8 @@ export async function loadCurrentCurrency(): Promise<void> {
             locale: 'es-PE',
             formato_numero: 'S/0,0.00'
         };
+    } finally {
+        isFetchingCurrency = false;
     }
 }
 

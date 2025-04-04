@@ -290,72 +290,100 @@ class OrdenController extends Controller
     }
 
     /**
-     * Mark order as paid.
+     * Marcar una orden como pagada.
      */
     public function markAsPaid(Orden $orden)
     {
         try {
             DB::beginTransaction();
-
-            // Siempre establecer el estado como 'pendiente' independientemente
-            // del estado actual para mantener consistente el flujo de trabajo
-            $estadoAnterior = $orden->estado;
             
-            // Usar una consulta directa para asegurar que ambos cambios se hagan juntos
-            DB::table('ordenes')
-                ->where('id', $orden->id)
-                ->update([
-                    'pagado' => true,
-                    'estado' => 'pendiente',
-                    'updated_at' => now()
-                ]);
-            
-            // Recargar la orden para asegurarnos de tener los datos actualizados
-            $orden = $orden->fresh();
-            
-            // Log para verificar el cambio
-            Log::info('Orden marcada como pagada (VERIFICACIÓN):', [
+            // Verificar estado actual con más detalles
+            Log::info('Marcando orden como pagada (ANTES):', [
                 'orden_id' => $orden->id,
-                'estado_anterior' => $estadoAnterior,
+                'numero_orden' => $orden->numero_orden,
                 'estado_actual' => $orden->estado,
-                'pagado' => $orden->pagado ? 'Sí' : 'No'
+                'pagado_actual' => $orden->pagado ? 'SI' : 'NO',
+                'tipo_pagado' => gettype($orden->pagado), 
+                'valor_raw' => var_export($orden->pagado, true)
             ]);
-
-            // Registrar acción en el historial
+            
+            // Marcar como pagada explícitamente (forzar el valor booleano)
+            $orden->pagado = true;
+            $orden->save();
+            
+            // Verificar que se haya guardado correctamente
+            $orden = $orden->fresh();
+            Log::info('Estado después de guardar:', [
+                'pagado' => $orden->pagado ? 'SI' : 'NO',
+                'tipo_pagado' => gettype($orden->pagado),
+                'valor_raw' => var_export($orden->pagado, true)
+            ]);
+            
+            // Registrar en el historial
             HistorialOrden::create([
                 'orden_id' => $orden->id,
                 'user_id' => Auth::id(),
                 'tipo_accion' => 'pago',
-                'detalles' => 'Orden marcada como pagada. ' . 
-                              ($estadoAnterior != 'pendiente' ? 
-                              'Cambiada de estado "'.$estadoAnterior.'" a "pendiente" para iniciar preparación.' : 
-                              'Lista para preparación.'),
+                'detalles' => 'Orden marcada como pagada',
                 'fecha_accion' => now(),
             ]);
-
+            
             DB::commit();
             
-            Log::info('Orden marcada como pagada:', [
-                'orden_id' => $orden->id,
-                'estado_anterior' => $estadoAnterior,
-                'nuevo_estado' => 'pendiente'
+            // Cargar todas las relaciones necesarias
+            $ordenConRelaciones = $orden->fresh(['mesa', 'user', 'productos.categoria']);
+            
+            // Asegurar que todos los productos tengan su categoría
+            foreach ($ordenConRelaciones->productos as $producto) {
+                if (!$producto->categoria) {
+                    $producto->load('categoria');
+                }
+            }
+            
+            // Asegurar explícitamente que la orden está marcada como pagada
+            $ordenConRelaciones->pagado = true;
+            
+            // Logs para debugging con más detalles
+            Log::info('Emitiendo evento OrdenStatusUpdated después de marcar como pagada', [
+                'orden_id' => $ordenConRelaciones->id,
+                'numero_orden' => $ordenConRelaciones->numero_orden,
+                'pagado' => $ordenConRelaciones->pagado ? 'SI' : 'NO',
+                'tipo_pagado' => gettype($ordenConRelaciones->pagado),
+                'valor_raw' => var_export($ordenConRelaciones->pagado, true),
+                'estado' => $ordenConRelaciones->estado,
+                'productos_count' => $ordenConRelaciones->productos->count()
             ]);
-
+            
+            // Forzar que el campo pagado sea booleano true para el evento
+            $ordenConRelaciones->pagado = true;
+            
+            // Emitir el evento con la orden actualizada
+            event(new OrdenStatusUpdated($ordenConRelaciones));
+            
+            // Verificar qué se está enviando en la respuesta
+            Log::info('Datos de orden en la respuesta JSON:', [
+                'pagado' => $ordenConRelaciones->pagado ? 'SI' : 'NO',
+                'tipo_pagado' => gettype($ordenConRelaciones->pagado),
+                'valor_raw' => var_export($ordenConRelaciones->pagado, true)
+            ]);
+            
             return response()->json([
                 'success' => true,
-                'message' => 'Orden marcada como pagada con éxito'
+                'message' => 'Orden marcada como pagada con éxito',
+                'orden' => $ordenConRelaciones // Incluir la orden actualizada en la respuesta
             ]);
-
+            
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error al marcar como pagada:', [
+            
+            Log::error('Error al marcar orden como pagada:', [
                 'orden_id' => $orden->id,
                 'error' => $e->getMessage()
             ]);
             
             return response()->json([
                 'success' => false,
-                'message' => 'Error al marcar como pagada: ' . $e->getMessage()
+                'message' => 'Error al marcar la orden como pagada: ' . $e->getMessage()
             ], 500);
         }
     }
@@ -507,9 +535,8 @@ class OrdenController extends Controller
      */
     public function gestion()
     {
-        // Obtener solo órdenes pagadas que estén activas: pendientes, en proceso y listas
+        // Obtener órdenes activas, sin filtrar por pagado
         $ordenes = Orden::with(['mesa', 'user', 'productos.categoria'])
-            ->where('pagado', true)
             ->whereIn('estado', ['pendiente', 'en_proceso', 'lista'])
             ->orderByRaw("CASE 
                 WHEN estado = 'lista' THEN 1
@@ -522,10 +549,38 @@ class OrdenController extends Controller
         
         // Transformar la colección para incluir los items directamente
         $ordenes->transform(function ($orden) {
+            // Filtrar productos según el rol del usuario
+            $productos = $orden->productos;
+            
+            // Si el usuario es bartender, solo mostrar productos de la categoría Tragos
+            if (auth()->user()->role === 'bartender') {
+                // Filtrar productos de categoría Tragos
+                $productosTragos = $productos->filter(function ($producto) {
+                    return $producto->categoria && $producto->categoria->nombre === 'Tragos';
+                });
+                
+                Log::info('Filtrado de productos para bartender', [
+                    'orden_id' => $orden->id,
+                    'total_productos' => $productos->count(),
+                    'productos_tragos' => $productosTragos->count()
+                ]);
+            } else {
+                // Para otros roles, usar todos los productos
+                $productosTragos = $productos;
+            }
+            
             // Asegurar que los productos estén mapeados como ítems para mantener compatibilidad con el frontend
-            $orden->items = $orden->productos->map(function ($producto) {
+            $orden->items = $productosTragos->map(function ($producto) {
                 return [
-                    'producto' => $producto,
+                    'producto' => [
+                        'id' => $producto->id,
+                        'nombre' => $producto->nombre,
+                        'categoria' => [
+                            'id' => $producto->categoria->id,
+                            'nombre' => $producto->categoria->nombre,
+                            'color' => $producto->categoria->color ?? '#000000'
+                        ]
+                    ],
                     'cantidad' => $producto->pivot->cantidad,
                     'precio_unitario' => $producto->pivot->precio_unitario,
                     'subtotal' => $producto->pivot->subtotal,
@@ -533,12 +588,116 @@ class OrdenController extends Controller
                 ];
             });
             
+            // Asegurar explícitamente que el campo pagado sea booleano
+            $orden->pagado = (bool)$orden->pagado;
+            
             return $orden;
         });
         
-        Log::info('Cargando gestión de órdenes pagadas', ['cantidad' => $ordenes->count()]);
+        Log::info('Órdenes procesadas para frontend', [
+            'ordenes_count' => $ordenes->count()
+        ]);
         
         return Inertia::render('ordenes/gestion', [
+            'ordenes' => $ordenes
+        ]);
+    }
+
+    /**
+     * Obtener los datos de órdenes activas para AJAX.
+     */
+    public function gestionData()
+    {
+        // Obtener órdenes activas, sin filtrar por pagado
+        $ordenes = Orden::with(['mesa', 'user', 'productos.categoria'])
+            ->whereIn('estado', ['pendiente', 'en_proceso', 'lista'])
+            ->orderByRaw("CASE 
+                WHEN estado = 'lista' THEN 1
+                WHEN estado = 'en_proceso' THEN 2
+                WHEN estado = 'pendiente' THEN 3
+                ELSE 4
+            END")
+            ->orderBy('created_at', 'desc')
+            ->get();
+            
+        // Para depuración
+        Log::info('Obteniendo órdenes con productos para gestionData', [
+            'total_ordenes' => $ordenes->count()
+        ]);
+        
+        // Transformar la colección para incluir los items directamente
+        $ordenes->transform(function ($orden) {
+            // Cargar explícitamente la relación de categoría para cada producto
+            foreach ($orden->productos as $producto) {
+                if (!$producto->relationLoaded('categoria')) {
+                    $producto->load('categoria');
+                }
+                
+                // Verificar que cada producto tenga información de categoría
+                if (!$producto->categoria) {
+                    Log::warning('Producto sin categoría en orden', [
+                        'orden_id' => $orden->id,
+                        'producto_id' => $producto->id,
+                        'producto_nombre' => $producto->nombre
+                    ]);
+                    
+                    // Asignar una categoría por defecto para evitar errores
+                    $producto->categoria_id = $producto->categoria_id ?? 1;
+                    $producto->categoria = $producto->categoria ?? \App\Models\Categoria::find($producto->categoria_id);
+                }
+            }
+            
+            // Filtrar productos según el rol del usuario
+            $productos = $orden->productos;
+            
+            // Si el usuario es bartender, solo mostrar productos de la categoría Tragos
+            if (auth()->user()->role === 'bartender') {
+                // Filtrar productos de categoría Tragos
+                $productosTragos = $productos->filter(function ($producto) {
+                    return $producto->categoria && $producto->categoria->nombre === 'Tragos';
+                });
+                
+                Log::info('Filtrado de productos para bartender', [
+                    'orden_id' => $orden->id,
+                    'total_productos' => $productos->count(),
+                    'productos_tragos' => $productosTragos->count()
+                ]);
+            } else {
+                // Para otros roles, usar todos los productos
+                $productosTragos = $productos;
+            }
+            
+            // Asegurar que los productos estén mapeados como ítems para mantener compatibilidad con el frontend
+            $orden->items = $productosTragos->map(function ($producto) {
+                return [
+                    'producto' => [
+                        'id' => $producto->id,
+                        'nombre' => $producto->nombre,
+                        'categoria' => [
+                            'id' => $producto->categoria->id,
+                            'nombre' => $producto->categoria->nombre,
+                            'color' => $producto->categoria->color ?? '#000000'
+                        ]
+                    ],
+                    'cantidad' => $producto->pivot->cantidad,
+                    'precio_unitario' => $producto->pivot->precio_unitario,
+                    'subtotal' => $producto->pivot->subtotal,
+                    'notas' => $producto->pivot->notas
+                ];
+            });
+            
+            // Asegurar explícitamente que el campo pagado sea booleano
+            $orden->pagado = (bool)$orden->pagado;
+            
+            return $orden;
+        });
+        
+        Log::info('Órdenes procesadas para frontend', [
+            'ordenes_count' => $ordenes->count()
+        ]);
+        
+        return response()->json([
+            'success' => true,
             'ordenes' => $ordenes
         ]);
     }

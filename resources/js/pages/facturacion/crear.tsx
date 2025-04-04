@@ -216,7 +216,7 @@ export default function CrearFactura({ mesa, orden, cajasAbiertas }: CrearFactur
       <div className="container mx-auto py-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Columna izquierda: Detalles de la Orden - Visible solo en pantallas medianas y grandes */}
-          <Card className="h-80 overflow-auto hidden md:block">
+          <Card className="h-150 overflow-auto hidden md:block">
             <CardHeader className="pb-3">
               <CardTitle>Detalles de la Orden #{orden.numero_orden}</CardTitle>
               <CardDescription>
@@ -266,205 +266,36 @@ export default function CrearFactura({ mesa, orden, cajasAbiertas }: CrearFactur
           <div className="flex justify-center md:justify-start lg:justify-center">
             <div className="w-full max-w-sm">
               <Card className="shadow-lg">
-                {/* Encabezado */}
-                <CardHeader className="text-center border-b py-3">
-                  <div className="flex justify-center mb-1">
-                    <div className="p-1.5 bg-primary/10 rounded-full">
-                      <Coffee className="h-6 w-6 text-primary" />
-                    </div>
-                  </div>
-                  <CardTitle className="text-lg">Procesar Pago</CardTitle>
-                  <CardDescription className="flex items-center justify-center mt-0.5 text-xs">
-                    <Receipt className="h-3 w-3 mr-1" />
-                    Mesa #{mesa?.numero}
-                  </CardDescription>
-                </CardHeader>
-                
-                {/* Contenido - Paso 1: Propina */}
-                {step === 'propina' && (
-                  <CardContent className="pt-4 px-4">
-                    <div className="text-center mb-6">
-                      <p className="text-xs text-muted-foreground">Total de la cuenta</p>
-                      <h2 className="text-3xl font-bold">{formatCurrency(orden.total)}</h2>
-                    </div>
-                    
-                    <div className="mb-8">
-                      <p className="text-sm mb-3 text-center font-medium">¿Desea agregar propina?</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        <Button 
-                          variant={propinaPercentage === 10 ? "default" : "outline"} 
-                          onClick={() => handlePropina(10)}
-                          className="w-full h-12 text-lg"
-                        >
-                          10%
-                        </Button>
-                        <Button 
-                          variant={propinaPercentage === 15 ? "default" : "outline"} 
-                          onClick={() => handlePropina(15)}
-                          className="w-full h-12 text-lg"
-                        >
-                          15%
-                        </Button>
-                        <Button 
-                          variant={propinaPercentage === 20 ? "default" : "outline"} 
-                          onClick={() => handlePropina(20)}
-                          className="w-full h-12 text-lg"
-                        >
-                          20%
-                        </Button>
+                {/* Encabezado - Visible solo si no hay pago exitoso */}
+                {cambio === null && (
+                  <CardHeader className="text-center border-b py-3">
+                    <div className="flex justify-center mb-1">
+                      <div className="p-1.5 bg-primary/10 rounded-full">
+                        <Coffee className="h-6 w-6 text-primary" />
                       </div>
                     </div>
-
-                    <div className="mt-4 space-y-1 bg-muted/20 p-4 rounded-lg mb-6">
-                      <div className="flex justify-between">
-                        <span>Subtotal:</span>
-                        <span>{formatCurrency(orden.subtotal)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Propina ({propinaPercentage}%):</span>
-                        <span>{formatCurrency(propina)}</span>
-                      </div>
-                      <div className="flex justify-between font-bold">
-                        <span>Total:</span>
-                        <span>{formatCurrency(calcularTotal(Number(orden.total)))}</span>
-                      </div>
-                    </div>
-
-                    <Button 
-                      onClick={nextStep}
-                      className="w-full h-12 text-base"
-                    >
-                      Continuar
-                    </Button>
-                  </CardContent>
-                )}
-
-                {/* Contenido - Paso 2: Método de Pago */}
-                {step === 'metodo' && (
-                  <CardContent className="pt-4 px-4">
-                    <div className="mb-2 flex items-center">
-                      <Button 
-                        variant="ghost" 
-                        className="p-1 mr-2"
-                        onClick={goBack}
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                      </Button>
-                      <h3 className="text-lg font-medium">Seleccione método de pago</h3>
-                    </div>
-                    
-                    <div className="mt-6 mb-8 grid grid-cols-2 gap-4">
-                      <Button 
-                        variant="outline" 
-                        className="flex flex-col items-center justify-center h-24 hover:bg-primary/10 hover:text-primary"
-                        onClick={() => handleMetodoPago('efectivo')}
-                      >
-                        <Banknote className="h-10 w-10 mb-2" />
-                        <span className="text-xs">Efectivo</span>
-                      </Button>
-                      
-                      <Button 
-                        variant="outline" 
-                        className="flex flex-col items-center justify-center h-24 hover:bg-primary/10 hover:text-primary"
-                        onClick={() => handleMetodoPago('tarjeta')}
-                      >
-                        <CreditCardIcon className="h-10 w-10 mb-2" />
-                        <span className="text-xs">Tarjeta</span>
-                      </Button>
-                      
-                      <Button 
-                        variant="outline" 
-                        className="flex flex-col items-center justify-center h-24 hover:bg-primary/10 hover:text-primary"
-                        onClick={() => handleMetodoPago('yape')}
-                      >
-                        <Smartphone className="h-10 w-10 mb-2" />
-                        <span className="text-xs">Yape</span>
-                      </Button>
-                      
-                      <Button 
-                        variant="outline" 
-                        className="flex flex-col items-center justify-center h-24 hover:bg-primary/10 hover:text-primary"
-                        onClick={() => handleMetodoPago('transferencia')}
-                      >
-                        <CreditCard className="h-10 w-10 mb-2" />
-                        <span className="text-xs">Transferencia</span>
-                      </Button>
-                    </div>
-
-                    <div className="mt-4 space-y-1 bg-muted/20 p-4 rounded-lg">
-                      <div className="flex justify-between">
-                        <span>Total a pagar:</span>
-                        <span className="font-bold">{formatCurrency(calcularTotal(Number(orden.total)))}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                )}
-
-                {/* Contenido - Paso 3: Confirmación */}
-                {step === 'confirmacion' && (
-                  <CardContent className="pt-4 px-4">
-                    <div className="mb-2 flex items-center">
-                      <Button 
-                        variant="ghost" 
-                        className="p-1 mr-2"
-                        onClick={goBack}
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                      </Button>
-                      <h3 className="text-lg font-medium">Confirmar pago</h3>
-                    </div>
-                    
-                    <div className="my-8 flex flex-col items-center">
-                      <div className="bg-primary/10 p-4 rounded-full mb-4">
-                        {form.data.metodo_pago === 'efectivo' && <Banknote className="h-12 w-12 text-primary" />}
-                        {form.data.metodo_pago === 'tarjeta' && <CreditCardIcon className="h-12 w-12 text-primary" />}
-                        {form.data.metodo_pago === 'yape' && <Smartphone className="h-12 w-12 text-primary" />}
-                        {form.data.metodo_pago === 'transferencia' && <CreditCard className="h-12 w-12 text-primary" />}
-                      </div>
-                      
-                      <p className="text-xl font-bold mb-1">{formatCurrency(calcularTotal(Number(orden.total)))}</p>
-                      <p className="text-sm text-muted-foreground capitalize">{form.data.metodo_pago}</p>
-                    </div>
-
-                    <div className="mt-4 space-y-1 bg-muted/20 p-4 rounded-lg mb-6">
-                      <div className="flex justify-between">
-                        <span>Subtotal:</span>
-                        <span>{formatCurrency(orden.subtotal)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Propina ({propinaPercentage}%):</span>
-                        <span>{formatCurrency(propina)}</span>
-                      </div>
-                      <div className="flex justify-between font-bold">
-                        <span>Total:</span>
-                        <span>{formatCurrency(calcularTotal(Number(orden.total)))}</span>
-                      </div>
-                    </div>
-
-                    <Button 
-                      onClick={handleSubmit}
-                      className="w-full h-12 text-base"
-                      disabled={procesando}
-                    >
-                      {procesando ? 'Procesando...' : 'Procesar Pago'}
-                    </Button>
-                  </CardContent>
+                    <CardTitle className="text-lg">Procesar Pago</CardTitle>
+                    <CardDescription className="flex items-center justify-center mt-0.5 text-xs">
+                      <Receipt className="h-3 w-3 mr-1" />
+                      Mesa #{mesa?.numero}
+                    </CardDescription>
+                  </CardHeader>
                 )}
                 
-                {/* Sección de pago exitoso */}
-                {cambio !== null && (
+                {/* Si hay pago exitoso, mostrar solo esa sección */}
+                {cambio !== null ? (
                   <CardContent className="pt-4 px-4">
                     <div className="flex flex-col items-center">
-                      <div className="bg-green-100 p-4 rounded-full mb-4">
-                        <CheckCircle className="h-12 w-12 text-green-600" />
+                      <div className="flex items-center gap-3 mb-3 w-full justify-center">
+                        <div className="bg-green-100 p-2 rounded-full">
+                          <CheckCircle className="h-6 w-6 text-green-600" />
+                        </div>
+                        <h3 className="text-lg font-bold">¡Pago exitoso!</h3>
                       </div>
                       
-                      <h3 className="text-xl font-bold mb-2">¡Pago exitoso!</h3>
-                      <p className="text-sm text-muted-foreground mb-6">Se ha procesado el pago correctamente</p>
-                      
-                      <div className="w-full p-4 border rounded-lg bg-primary/5 mb-6">
-                        <div className="space-y-2">
-                          <div className="flex justify-between">
+                      <div className="w-full p-3 border rounded-lg bg-primary/5 mb-4">
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-sm">
                             <span>Total pagado:</span>
                             <span>{formatCurrency(calcularTotal(Number(orden.total)))}</span>
                           </div>
@@ -475,7 +306,7 @@ export default function CrearFactura({ mesa, orden, cajasAbiertas }: CrearFactur
                         </div>
                       </div>
                       
-                      <div className="flex flex-col gap-2 w-full">
+                      <div className="flex flex-col gap-2 w-full mt-1">
                         <Button 
                           onClick={imprimirBoleta} 
                           className="w-full h-10 text-sm"
@@ -494,6 +325,205 @@ export default function CrearFactura({ mesa, orden, cajasAbiertas }: CrearFactur
                       </div>
                     </div>
                   </CardContent>
+                ) : (
+                  /* Contenidos de los pasos - Solo mostrar si no hay pago exitoso */
+                  <>
+                    {/* Paso 1: Propina */}
+                    {step === 'propina' && (
+                      <CardContent className="pt-4 px-4">
+                        <div className="text-center mb-6">
+                          <p className="text-xs text-muted-foreground">Total de la cuenta</p>
+                          <h2 className="text-3xl font-bold">{formatCurrency(orden.total)}</h2>
+                        </div>
+                        
+                        <div className="mb-4">
+                          <Label htmlFor="caja" className="text-sm mb-2 block">Seleccionar caja</Label>
+                          <Select 
+                            value={form.data.caja_id} 
+                            onValueChange={(value) => form.setData('caja_id', value)}
+                          >
+                            <SelectTrigger id="caja" className="w-full mb-4">
+                              <SelectValue placeholder="Seleccione una caja" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {cajasAbiertas.map((caja) => (
+                                <SelectItem key={caja.id} value={caja.id.toString()}>
+                                  Caja #{caja.numero_caja} - {caja.usuario}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        
+                        <div className="mb-8">
+                          <p className="text-sm mb-3 text-center font-medium">¿Desea agregar propina?</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            <Button 
+                              variant={propinaPercentage === 10 ? "default" : "outline"} 
+                              onClick={() => handlePropina(10)}
+                              className="w-full h-12 text-lg"
+                            >
+                              10%
+                            </Button>
+                            <Button 
+                              variant={propinaPercentage === 15 ? "default" : "outline"} 
+                              onClick={() => handlePropina(15)}
+                              className="w-full h-12 text-lg"
+                            >
+                              15%
+                            </Button>
+                            <Button 
+                              variant={propinaPercentage === 20 ? "default" : "outline"} 
+                              onClick={() => handlePropina(20)}
+                              className="w-full h-12 text-lg"
+                            >
+                              20%
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 space-y-1 bg-muted/20 p-4 rounded-lg mb-6">
+                          <div className="flex justify-between">
+                            <span>Subtotal:</span>
+                            <span>{formatCurrency(orden.subtotal)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Propina ({propinaPercentage}%):</span>
+                            <span>{formatCurrency(propina)}</span>
+                          </div>
+                          <div className="flex justify-between font-bold">
+                            <span>Total:</span>
+                            <span>{formatCurrency(calcularTotal(Number(orden.total)))}</span>
+                          </div>
+                        </div>
+
+                        <Button 
+                          onClick={nextStep}
+                          className="w-full h-12 text-base"
+                        >
+                          Continuar
+                        </Button>
+                      </CardContent>
+                    )}
+
+                    {/* Paso 2: Método de Pago */}
+                    {step === 'metodo' && (
+                      <CardContent className="pt-4 px-4">
+                        <div className="mb-2 flex items-center">
+                          <Button 
+                            variant="ghost" 
+                            className="p-1 mr-2"
+                            onClick={goBack}
+                          >
+                            <ArrowLeft className="h-4 w-4" />
+                          </Button>
+                          <h3 className="text-lg font-medium">Seleccione método de pago</h3>
+                        </div>
+                        
+                        <div className="mt-6 mb-8 grid grid-cols-2 gap-4">
+                          <Button 
+                            variant="outline" 
+                            className="flex flex-col items-center justify-center h-24 hover:bg-primary/10 hover:text-primary"
+                            onClick={() => handleMetodoPago('efectivo')}
+                          >
+                            <Banknote className="h-10 w-10 mb-2" />
+                            <span className="text-xs">Efectivo</span>
+                          </Button>
+                          
+                          <Button 
+                            variant="outline" 
+                            className="flex flex-col items-center justify-center h-24 hover:bg-primary/10 hover:text-primary"
+                            onClick={() => handleMetodoPago('tarjeta')}
+                          >
+                            <CreditCardIcon className="h-10 w-10 mb-2" />
+                            <span className="text-xs">Tarjeta</span>
+                          </Button>
+                          
+                          <Button 
+                            variant="outline" 
+                            className="flex flex-col items-center justify-center h-24 hover:bg-primary/10 hover:text-primary"
+                            onClick={() => handleMetodoPago('yape')}
+                          >
+                            <Smartphone className="h-10 w-10 mb-2" />
+                            <span className="text-xs">Yape</span>
+                          </Button>
+                          
+                          <Button 
+                            variant="outline" 
+                            className="flex flex-col items-center justify-center h-24 hover:bg-primary/10 hover:text-primary"
+                            onClick={() => handleMetodoPago('transferencia')}
+                          >
+                            <CreditCard className="h-10 w-10 mb-2" />
+                            <span className="text-xs">Transferencia</span>
+                          </Button>
+                        </div>
+
+                        <div className="mt-4 space-y-1 bg-muted/20 p-4 rounded-lg">
+                          <div className="flex justify-between">
+                            <span>Total a pagar:</span>
+                            <span className="font-bold">{formatCurrency(calcularTotal(Number(orden.total)))}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    )}
+
+                    {/* Paso 3: Confirmación */}
+                    {step === 'confirmacion' && (
+                      <CardContent className="pt-4 px-4">
+                        <div className="mb-2 flex items-center">
+                          <Button 
+                            variant="ghost" 
+                            className="p-1 mr-2"
+                            onClick={goBack}
+                          >
+                            <ArrowLeft className="h-4 w-4" />
+                          </Button>
+                          <h3 className="text-lg font-medium">Confirmar pago</h3>
+                        </div>
+                        
+                        <div className="my-8 flex flex-col items-center">
+                          <div className="bg-primary/10 p-4 rounded-full mb-4">
+                            {form.data.metodo_pago === 'efectivo' && <Banknote className="h-12 w-12 text-primary" />}
+                            {form.data.metodo_pago === 'tarjeta' && <CreditCardIcon className="h-12 w-12 text-primary" />}
+                            {form.data.metodo_pago === 'yape' && <Smartphone className="h-12 w-12 text-primary" />}
+                            {form.data.metodo_pago === 'transferencia' && <CreditCard className="h-12 w-12 text-primary" />}
+                          </div>
+                          
+                          <p className="text-xl font-bold mb-1">{formatCurrency(calcularTotal(Number(orden.total)))}</p>
+                          <p className="text-sm text-muted-foreground capitalize">{form.data.metodo_pago}</p>
+                        </div>
+
+                        <div className="mt-4 space-y-1 bg-muted/20 p-4 rounded-lg mb-6">
+                          <div className="flex justify-between">
+                            <span>Subtotal:</span>
+                            <span>{formatCurrency(orden.subtotal)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Propina ({propinaPercentage}%):</span>
+                            <span>{formatCurrency(propina)}</span>
+                          </div>
+                          <div className="flex justify-between font-bold">
+                            <span>Total:</span>
+                            <span>{formatCurrency(calcularTotal(Number(orden.total)))}</span>
+                          </div>
+                          <div className="flex justify-between mt-2 pt-2 border-t border-muted-foreground/20">
+                            <span>Caja:</span>
+                            <span className="font-medium">
+                              {cajasAbiertas.find(caja => caja.id.toString() === form.data.caja_id)?.numero_caja || 'No seleccionada'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <Button 
+                          onClick={handleSubmit}
+                          className="w-full h-12 text-base"
+                          disabled={procesando}
+                        >
+                          {procesando ? 'Procesando...' : 'Procesar Pago'}
+                        </Button>
+                      </CardContent>
+                    )}
+                  </>
                 )}
               </Card>
             </div>

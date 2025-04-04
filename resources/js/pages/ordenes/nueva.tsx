@@ -44,7 +44,6 @@ const CATEGORIA_BEBIDAS_ID = 2; // Ajusta este ID según tu base de datos
 // Promoción especial - Precio fijo para 2-3 tragos
 const PROMOCION_PRECIO_FIJO = 10.00; // Precio en soles
 const PROMOCION_MIN_PRODUCTOS = 2;
-const PROMOCION_MAX_PRODUCTOS = 3;
 
 const NuevaOrden: React.FC<NuevaOrdenProps> = ({ 
   mesas, 
@@ -110,19 +109,32 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
     setFilteredProductos(filtered);
   }, [selectedCategoria, searchTerm, productos]);
 
-  // Este efecto calcula los totales cuando cambian los items
+  // Este efecto se ejecuta cuando cambian los items
   useEffect(() => {
     if (!data.items) {
-      
       setData('items', []);
       return;
     }
     
     console.log("Calculando totales, items actuales:", JSON.stringify(data.items));
     
+    // Si hay items, verificar si hay tragos para aplicar promoción
+    const tragosEnOrden = data.items.filter(item => 
+      item && item.producto && esProductoTragos(item.producto) && !item.es_complemento_gratuito
+    );
+    
+    const cantidadTragos = tragosEnOrden.reduce((sum, item) => sum + item.cantidad, 0);
+    
+    // Si hay 2 o más tragos, aplicar la promoción
+    if (cantidadTragos >= PROMOCION_MIN_PRODUCTOS) {
+      // Aplicar la promoción cada vez que cambien los items
+      setTimeout(() => {
+        aplicarPromocionTragos();
+      }, 0);
+    }
+    
     if (data.items.length > 0) {
       const subtotal = data.items.reduce((sum, item) => sum + (item.precio_unitario * item.cantidad), 0);
-      
       
       // Usar un callback para actualizar el estado para evitar problemas de sincronización
       setData(prevData => ({
@@ -148,31 +160,28 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
   // Verificar si un producto pertenece a la categoría de tragos
   const esProductoTragos = (producto: Producto): boolean => {
     if (!producto) {
-      
       return false;
     }
     
     // Si la categoría no existe o es nula, no es un trago
     if (!producto.categoria) {
-     
       return false;
     }
     
     // Verificación por nombre de categoría - buscando "tragos" en el nombre
     const nombreCategoria = producto.categoria.nombre?.toLowerCase() || '';
     const esTragos = nombreCategoria.includes('tragos') || 
-                    nombreCategoria.includes('licor') || 
-                    (nombreCategoria.includes('bebida') && nombreCategoria.includes('alcohólica'));
-    
-    
+                   nombreCategoria.includes('trago');
     
     return esTragos;
   };
 
   // Contar cuántos productos de la categoría tragos hay en la orden actual
   const contarProductosTragos = (): number => {
+    if (!data.items || !Array.isArray(data.items)) return 0;
+    
     return data.items.reduce((count, item) => {
-      if (esProductoTragos(item.producto) && !item.es_complemento_gratuito) {
+      if (item && item.producto && esProductoTragos(item.producto) && !item.es_complemento_gratuito) {
         return count + item.cantidad;
       }
       return count;
@@ -184,59 +193,66 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
     if (!esProductoTragos(productoActual)) return false;
     
     const cantidadTragoActual = contarProductosTragos();
-    // Verificar si añadiendo este producto estamos en el rango de la promoción (2-3 tragos)
-    return cantidadTragoActual + 1 >= PROMOCION_MIN_PRODUCTOS && 
-           cantidadTragoActual + 1 <= PROMOCION_MAX_PRODUCTOS;
+    // Verificar si añadiendo este producto estamos en el rango de la promoción (2 o más tragos)
+    return cantidadTragoActual + 1 >= PROMOCION_MIN_PRODUCTOS;
   };
 
   // Aplicar el precio de promoción a los tragos cuando corresponda
   const aplicarPromocionTragos = () => {
+    if (!data.items || !Array.isArray(data.items)) return;
     
-    
-    // Paso 1: Contar los tragos en la orden
+    // Verificar todos los tragos en la orden
     const tragosItems = data.items.filter(item => 
       item && item.producto && esProductoTragos(item.producto) && !item.es_complemento_gratuito
     );
     
+    // Contar todos los tragos (sumar cantidades)
     const cantidadTragos = tragosItems.reduce((sum, item) => sum + item.cantidad, 0);
     
+    console.log(`Verificando promoción: ${cantidadTragos} tragos en la orden (${tragosItems.length} tipos diferentes)`);
     
-    // Solo aplicar si tenemos entre 2-3 tragos
-    if (cantidadTragos >= PROMOCION_MIN_PRODUCTOS && cantidadTragos <= PROMOCION_MAX_PRODUCTOS) {
-      
-      
-      // Hacer una copia completa del array de items
-      const updatedItems = [...data.items];
+    // Aplicar promoción si hay 2 o más tragos, sin límite superior
+    if (cantidadTragos >= PROMOCION_MIN_PRODUCTOS) {
+      // Hacer una copia profunda del array de items para evitar problemas de referencia
+      const updatedItems = JSON.parse(JSON.stringify(data.items));
       
       // Aplicar el precio de promoción a cada trago
-      updatedItems.forEach((item, idx) => {
+      let cambiosRealizados = false;
+      updatedItems.forEach((item: any) => {
         if (item && item.producto && esProductoTragos(item.producto) && !item.es_complemento_gratuito) {
-         
+          const precioAnterior = item.precio_unitario;
           item.precio_unitario = PROMOCION_PRECIO_FIJO;
           item.subtotal = item.precio_unitario * item.cantidad;
+          
+          if (precioAnterior !== PROMOCION_PRECIO_FIJO) {
+            cambiosRealizados = true;
+            console.log(`Cambiando precio de ${item.producto.nombre} de ${precioAnterior} a ${PROMOCION_PRECIO_FIJO}`);
+          }
         }
       });
       
-      // Actualizar el estado una sola vez con todos los cambios
-      
-      setData('items', updatedItems);
-      
-      toast({
-        title: "¡Promoción aplicada!",
-        description: `Se aplicó la promoción: Tragos a S/ ${PROMOCION_PRECIO_FIJO.toFixed(2)} cada uno.`,
-      });
+      if (cambiosRealizados) {
+        console.log("Aplicando promoción de tragos...");
+        // Actualizar el estado con los nuevos items
+        setData(prevData => ({
+          ...prevData,
+          items: updatedItems
+        }));
+        
+        toast({
+          title: "¡Promoción aplicada!",
+          description: `Se aplicó la promoción: Tragos a S/ ${PROMOCION_PRECIO_FIJO.toFixed(2)} cada uno.`,
+        });
+      }
     } else if (cantidadTragos < PROMOCION_MIN_PRODUCTOS && tragosItems.length > 0) {
-      
-      
       // Si hay menos tragos que el mínimo, restaurar precios originales
-      const updatedItems = [...data.items];
+      const updatedItems = JSON.parse(JSON.stringify(data.items));
       let cambiosRealizados = false;
       
-      updatedItems.forEach((item) => {
+      updatedItems.forEach((item: any) => {
         if (item && item.producto && esProductoTragos(item.producto) && !item.es_complemento_gratuito) {
           const precioOriginal = Number(item.producto.precio);
           if (item.precio_unitario !== precioOriginal) {
-            
             item.precio_unitario = precioOriginal;
             item.subtotal = item.precio_unitario * item.cantidad;
             cambiosRealizados = true;
@@ -246,12 +262,13 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
       
       // Solo actualizar si hubo cambios en los precios
       if (cambiosRealizados) {
-        
-        setData('items', updatedItems);
+        console.log("Restaurando precios originales...");
+        setData(prevData => ({
+          ...prevData,
+          items: updatedItems
+        }));
       }
     }
-    
-    
   };
 
   // Manejador para añadir un producto al pedido
@@ -292,29 +309,30 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
       return;
     }
     
-    // Verificar si es un trago usando la función esProductoTragos
+    console.log(`Añadiendo producto: ${producto.nombre}, ID: ${producto.id}`);
+    
+    // Verificar si es un trago
     const esTrago = esProductoTragos(producto);
     if (esTrago) {
-      console.log("Es un TRAGO - Categoría:", producto.categoria?.nombre);
+      console.log(`El producto ${producto.nombre} es un trago`);
     }
     
-    // Crear una copia del array de items actual
-    const currentItems = Array.isArray(data.items) ? [...data.items] : [];
+    // Crear una copia profunda del array de items actual para evitar problemas de referencia
+    const currentItems = Array.isArray(data.items) ? JSON.parse(JSON.stringify(data.items)) : [];
     
     // Verificar si el producto ya existe en la orden COMO PRODUCTO PRINCIPAL (no como complemento)
     const existingItemIndex = currentItems.findIndex(
-      item => item && item.producto && item.producto.id === producto.id && !item.es_complemento_gratuito
+      (item: any) => item && item.producto && item.producto.id === producto.id && !item.es_complemento_gratuito
     );
     
-    console.log("¿Existe en la orden como producto principal?:", existingItemIndex >= 0);
+    console.log(`¿Producto ya existe en la orden? ${existingItemIndex >= 0}`);
     
     if (existingItemIndex >= 0) {
       // Si ya existe como producto principal, aumentar la cantidad
       currentItems[existingItemIndex].cantidad += 1;
       currentItems[existingItemIndex].subtotal = 
         currentItems[existingItemIndex].cantidad * currentItems[existingItemIndex].precio_unitario;
-      
-      console.log("Actualizado item existente. Nueva cantidad:", currentItems[existingItemIndex].cantidad);
+      console.log(`Actualizado cantidad: ${currentItems[existingItemIndex].cantidad}`);
     } else {
       // Si no existe como producto principal, crear nuevo item
       const newItem = {
@@ -327,21 +345,20 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
       
       // Añadir el nuevo item
       currentItems.push(newItem);
-      console.log("Añadido nuevo item:", producto.nombre, "Precio:", newItem.precio_unitario);
+      console.log(`Añadido nuevo producto: ${producto.nombre}`);
     }
     
     // Si hay complemento, procesarlo
     if (complemento) {
       // Buscamos el complemento sólo entre los que están marcados como complementos
       const existingComplementoIndex = currentItems.findIndex(
-        item => item && item.producto && item.producto.id === complemento.id && 
+        (item: any) => item && item.producto && item.producto.id === complemento.id && 
                item.es_complemento_gratuito === true && item.complemento_de === producto.id
       );
       
       if (existingComplementoIndex >= 0) {
         // Aumentar cantidad del complemento existente
         currentItems[existingComplementoIndex].cantidad += cantidadComplemento;
-        console.log("Actualizado complemento existente");
       } else {
         // Añadir nuevo complemento
         const complementoItem = {
@@ -354,7 +371,6 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
         };
         
         currentItems.push(complementoItem);
-        console.log("Añadido nuevo complemento");
       }
       
       toast({
@@ -368,24 +384,46 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
       });
     }
     
-    // Actualizar el estado con los nuevos items
+    // Calcular la cantidad total de tragos después de añadir este
+    const tragosActuales = currentItems.filter((item: any) => 
+      item && item.producto && esProductoTragos(item.producto) && !item.es_complemento_gratuito
+    );
+    const cantidadTragosDespuesDeAñadir = tragosActuales.reduce((sum: number, item: any) => sum + item.cantidad, 0);
     
-    // Usar actualización funcional para garantizar que estamos usando el estado más reciente
+    console.log(`Después de añadir, hay ${cantidadTragosDespuesDeAñadir} tragos en la orden`);
+    
+    // Si es un trago y aplica la promoción, aplicar precio promocional inmediatamente
+    if (esTrago && cantidadTragosDespuesDeAñadir >= PROMOCION_MIN_PRODUCTOS) {
+      // Aplicar precio promocional a todos los tragos, incluido el recién añadido
+      currentItems.forEach((item: any) => {
+        if (item && item.producto && esProductoTragos(item.producto) && !item.es_complemento_gratuito) {
+          item.precio_unitario = PROMOCION_PRECIO_FIJO;
+          item.subtotal = item.precio_unitario * item.cantidad;
+        }
+      });
+      
+      console.log("Aplicando precio promocional directamente");
+      
+      // Notificar sobre la promoción
+      toast({
+        title: "¡Promoción aplicada!",
+        description: `Se aplicó la promoción: Tragos a S/ ${PROMOCION_PRECIO_FIJO.toFixed(2)} cada uno.`,
+      });
+    }
+    
+    // Actualizar el estado con los nuevos items
     setData(prevData => ({
       ...prevData,
       items: currentItems
     }));
     
-    // Verificar si es un trago para aplicar promociones
+    // Verificar si es un trago para aplicar promociones en caso de que se necesite actualizar algo más
     if (esTrago) {
-      console.log("Es un trago, verificando promoción después de actualizar...");
-      // Esperar a que se actualice el estado antes de aplicar la promoción
+      // Esperar a que se actualice el estado antes de verificar nuevamente
       setTimeout(() => {
-        console.log("Ejecutando aplicarPromocionTragos");
         aplicarPromocionTragos();
-      }, 300);
+      }, 500);
     }
-    console.log("======= Producto añadido =======");
   };
   
   // Función para manejar la selección de complemento

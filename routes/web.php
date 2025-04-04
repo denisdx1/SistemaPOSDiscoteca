@@ -26,15 +26,20 @@ Route::get('/', function () {
 
 // Rutas del Dashboard (requieren autenticación)
 Route::middleware('auth')->group(function () {
-    // Dashboard principal - accesible para todos los roles autenticados
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    // Redirección específica para bartenders que intenten acceder al dashboard
+    Route::get('/dashboard', function() {
+        if (auth()->user()->role === 'bartender') {
+            return redirect()->route('ordenes.gestion');
+        }
+        return app()->make(DashboardController::class)->index();
+    })->name('dashboard');
 
     // Módulo de Menú - Administrador y Bartender
     Route::prefix('menu')->middleware('role:administrador,bartender')->group(function () {
         // Rutas de Productos - Permitir a meseros para visualización
-        Route::get('/productos', [ProductoController::class, 'index'])->name('menu.productos')->withoutMiddleware('role:administrador,bartender')->middleware('role:administrador,bartender,mesero,cajero');
-        Route::get('/productos/{producto}/stock', [ProductoController::class, 'getStock'])->name('menu.productos.stock')->withoutMiddleware('role:administrador,bartender')->middleware('role:administrador,bartender,mesero,cajero'); 
-        Route::get('/stock', [ProductoController::class, 'getAllStock'])->name('menu.productos.stock.all')->withoutMiddleware('role:administrador,bartender')->middleware('role:administrador,bartender,mesero,cajero');
+        Route::get('/productos', [ProductoController::class, 'index'])->name('menu.productos')->withoutMiddleware('role:administrador')->middleware('role:administrador,cajero');
+        Route::get('/productos/{producto}/stock', [ProductoController::class, 'getStock'])->name('menu.productos.stock')->withoutMiddleware('role:administrador')->middleware('role:administrador,cajero'); 
+        Route::get('/stock', [ProductoController::class, 'getAllStock'])->name('menu.productos.stock.all')->withoutMiddleware('role:administrador')->middleware('role:administrador,cajero');
         
         // Rutas de gestión de productos - Solo admin y bartender
         Route::post('/productos', [ProductoController::class, 'store'])->name('menu.productos.store');
@@ -47,8 +52,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/complementos/{producto}', [ProductoComplementoController::class, 'update'])->name('menu.complementos.update');
         
         // Rutas de Categorías - Permitir a meseros para visualización
-        Route::get('/categorias', [CategoriaController::class, 'index'])->name('menu.categorias')->withoutMiddleware('role:administrador,bartender')->middleware('role:administrador,bartender,mesero,cajero');
-        Route::get('/categorias/all', [CategoriaController::class, 'getAll'])->name('menu.categorias.all')->withoutMiddleware('role:administrador,bartender')->middleware('role:administrador,bartender,mesero,cajero');
+        Route::get('/categorias', [CategoriaController::class, 'index'])->name('menu.categorias')->withoutMiddleware('role:administrador')->middleware('role:administrador,,cajero');
+        Route::get('/categorias/all', [CategoriaController::class, 'getAll'])->name('menu.categorias.all')->withoutMiddleware('role:administrador')->middleware('role:administrador,,cajero');
         
         // Rutas de gestión de categorías - Solo admin y bartender
         Route::post('/categorias', [CategoriaController::class, 'store'])->name('menu.categorias.store');
@@ -68,7 +73,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // Módulo de Inventario - Administrador, Cajero y Bartender
-    Route::prefix('inventario')->middleware('role:administrador,cajero,bartender')->group(function () {
+    Route::prefix('inventario')->middleware('role:administrador,cajero,')->group(function () {
         Route::get('/', function () {
             return Inertia::render('inventario/index');
         })->name('inventario');
@@ -76,13 +81,13 @@ Route::middleware('auth')->group(function () {
         // Rutas para consultar stock (permitir acceso a meseros)
         Route::get('/stock/{producto}', [ProductoController::class, 'getStock'])
             ->name('inventario.stock.producto')
-            ->withoutMiddleware('role:administrador,cajero,bartender')
-            ->middleware('role:administrador,cajero,bartender,mesero');
+            ->withoutMiddleware('role:administrador,cajero')
+            ->middleware('role:administrador,cajero');
         
         Route::get('/stock', [ProductoController::class, 'getAllStock'])
             ->name('inventario.stock.all')
-            ->withoutMiddleware('role:administrador,cajero,bartender')
-            ->middleware('role:administrador,cajero,bartender,mesero');
+            ->withoutMiddleware('role:administrador,cajero')
+            ->middleware('role:administrador,cajero');
         
         // Rutas de Movimientos de Inventario - Solo administrador puede modificar el inventario
         Route::middleware('role:administrador')->group(function () {
@@ -101,7 +106,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // Módulo de Ordenes - Administrador, Mesero y Bartender
-    Route::prefix('ordenes')->middleware('role:administrador,mesero,bartender,cajero')->group(function () {
+    Route::prefix('ordenes')->middleware('role:administrador,bartender,cajero')->group(function () {
         Route::get('/', [OrdenController::class, 'index'])->name('ordenes');
         Route::get('/nueva/{mesa?}', [OrdenController::class, 'create'])->name('ordenes.nueva');
         Route::post('/', [OrdenController::class, 'store'])->name('ordenes.store');
@@ -113,8 +118,9 @@ Route::middleware('auth')->group(function () {
         });
 
         // Gestion - Solo administrador, mesero y bartender
-        Route::middleware('role:administrador,bartender,mesero')->group(function(){
+        Route::middleware('role:administrador,bartender,cajero')->group(function(){
             Route::get('/gestion', [OrdenController::class, 'gestion'])->name('ordenes.gestion');
+            Route::get('/gestion-data', [OrdenController::class, 'gestionData'])->name('ordenes.gestion.data');
             Route::get('/{orden}', [OrdenController::class, 'show'])->name('ordenes.show');
             Route::patch('/{orden}/estado', [OrdenController::class, 'updateStatus'])->name('ordenes.update-status');
             Route::patch('/{orden}/pagar', [OrdenController::class, 'markAsPaid'])->name('ordenes.mark-as-paid');

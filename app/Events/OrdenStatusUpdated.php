@@ -136,6 +136,7 @@ class OrdenStatusUpdated implements ShouldBroadcast
             'numero_orden' => $this->orden->numero_orden,
             'subtotal' => $this->orden->subtotal,
             'total' => $this->orden->subtotal, // Usando subtotal como total (sin impuestos)
+            'pagado' => (bool)$this->orden->pagado, // Convertir explícitamente a booleano
             'created_at' => $this->orden->created_at?->toIso8601String(),
             'updated_at' => $this->orden->updated_at?->toIso8601String(),
             'productos' => $productos,
@@ -145,6 +146,7 @@ class OrdenStatusUpdated implements ShouldBroadcast
             'orden_id' => $eventData['id'],
             'tiene_mesa' => isset($eventData['mesa']),
             'tiene_user' => isset($eventData['user']),
+            'pagado' => $eventData['pagado'] ? 'SI' : 'NO',
             'productos_count' => count($eventData['productos'])
         ]);
         

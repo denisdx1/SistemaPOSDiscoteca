@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
+use App\Providers\RouteServiceProvider;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -33,7 +34,15 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        $user = auth()->user();
+        
+        // Si el usuario es bartender, redirigir a la gestión de órdenes
+        if ($user->role === 'bartender') {
+            return redirect()->route('ordenes.gestion');
+        }
+
+        // Para otros roles, usar la ruta HOME del RouteServiceProvider
+        return redirect(RouteServiceProvider::HOME);
     }
 
     /**
