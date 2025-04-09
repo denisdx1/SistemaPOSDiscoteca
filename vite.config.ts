@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
         server: {
             host: '0.0.0.0',
             hmr: {
-                host: '192.168.0.104'
+                host: '192.168.0.103'
             },
         },
         css: {

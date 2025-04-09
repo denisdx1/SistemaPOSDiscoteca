@@ -49,7 +49,7 @@ export default function MesaAcciones({ mesa }: MesaAccionesProps) {
     }
     
     // Redirigir a la página de cobro con la mesa pre-seleccionada
-    router.visit(route("facturacion.crear", { mesa: mesa.id }));
+    router.visit(route("facturacion.crear", { mesa_id: mesa.id }));
   };
 
   return (

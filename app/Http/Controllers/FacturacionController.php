@@ -17,47 +17,81 @@ class FacturacionController extends Controller
 {
     public function create(Request $request)
     {
-        $mesa = null;
-        $orden = null;
-
-        if ($request->has('mesa')) {
-            $mesa = Mesa::findOrFail($request->mesa);
-            $orden = $mesa->obtenerOrdenActiva();
-        }
-
+        $mesaId = $request->input('mesa_id');
+        $ordenId = $request->input('orden_id');
+        $usuario = Auth::user();
+        
+        $userInfo = [
+            'isCajero' => $usuario->hasRole('cajero'),
+            'cajaAsignada' => null,
+            'error' => null
+        ];
+        
         // Obtener todas las cajas abiertas
-        $cajasAbiertas = Caja::where('estado', 'abierta')
-            ->with('usuario')
+        $cajasAbiertas = Caja::with('usuario')
+            ->where('estado', 'abierta')
             ->get()
-            ->map(function($caja) {
+            ->map(function ($caja) {
                 return [
                     'id' => $caja->id,
                     'numero_caja' => $caja->numero_caja,
-                    'usuario' => $caja->usuario->name,
-                    'monto_inicial' => $caja->monto_inicial,
-                    'fecha_apertura' => $caja->fecha_apertura->format('Y-m-d H:i:s')
+                    'usuario' => $caja->usuario ? $caja->usuario->name : 'Sin asignar'
                 ];
             });
-
-        return Inertia::render('facturacion/crear', [
-            'mesa' => $mesa,
-            'orden' => $orden ? [
-                'id' => $orden->id,
-                'numero_orden' => $orden->numero_orden,
-                'estado' => $orden->estado,
-                'subtotal' => $orden->subtotal,
-                'total' => $orden->subtotal,
-                'items' => $orden->productos->map(fn($producto) => [
-                    'id' => $producto->id,
-                    'nombre' => $producto->nombre,
-                    'cantidad' => $producto->pivot->cantidad,
-                    'precio_unitario' => $producto->pivot->precio_unitario,
-                    'subtotal' => $producto->pivot->subtotal,
-                    'notas' => $producto->pivot->notas,
-                ])
-            ] : null,
-            'cajasAbiertas' => $cajasAbiertas
-        ]);
+        
+        // Si es cajero, buscar su caja asignada
+        if ($userInfo['isCajero']) {
+            $cajaAsignada = $usuario->cajaAsignada;
+            
+            if (!$cajaAsignada) {
+                $userInfo['error'] = 'No tiene una caja asignada. Por favor contacte al administrador para que le asigne una caja.';
+            } else {
+                // Buscar si la caja asignada está abierta
+                $cajaAbierta = Caja::where('id', $cajaAsignada->id)
+                    ->where('estado', 'abierta')
+                    ->first();
+                
+                if ($cajaAbierta) {
+                    $userInfo['cajaAsignada'] = $cajaAbierta;
+                    
+                    // Filtramos las cajas abiertas para que solo muestre la asignada al cajero
+                    $cajasAbiertas = $cajasAbiertas->filter(function($caja) use ($cajaAsignada) {
+                        return $caja['id'] == $cajaAsignada->id;
+                    })->values();
+                } else {
+                    $userInfo['error'] = "Su caja #{$cajaAsignada->numero_caja} está asignada pero no está abierta. Debe abrirla desde el módulo de cajas antes de poder cobrar.";
+                }
+            }
+        }
+        
+        if ($mesaId) {
+            $mesa = Mesa::findOrFail($mesaId);
+            $ordenActiva = $mesa->obtenerOrdenActiva();
+            
+            if (!$ordenActiva) {
+                return redirect()->route('facturacion.crear')->with('error', 'Esta mesa no tiene una orden activa');
+            }
+            
+            // Cargar las relaciones para la orden
+            $ordenActiva->load(['productos.categoria']);
+            
+            return Inertia::render('facturacion/crear', [
+                'mesa' => $mesa,
+                'orden' => $ordenActiva,
+                'cajasAbiertas' => $cajasAbiertas,
+                'userInfo' => $userInfo
+            ]);
+        } elseif ($ordenId) {
+            $orden = Orden::with(['productos.categoria'])->findOrFail($ordenId);
+            
+            return Inertia::render('facturacion/crear', [
+                'orden' => $orden,
+                'cajasAbiertas' => $cajasAbiertas,
+                'userInfo' => $userInfo
+            ]);
+        } else {
+            return redirect()->route('mesas')->with('error', 'No se especificó una mesa o una orden');
+        }
     }
 
     public function cobrar(Orden $orden, Request $request)
@@ -66,11 +100,24 @@ class FacturacionController extends Controller
             'metodo_pago' => 'required|in:efectivo,tarjeta,transferencia,otro,yape',
             'monto_recibido' => 'required|numeric|min:' . $orden->subtotal,
             'notas' => 'nullable|string',
-            'caja_id' => 'required|exists:cajas,id'
+            'caja_id' => 'required|exists:cajas,id',
+            'propina' => 'nullable|numeric'
         ]);
 
         try {
             DB::beginTransaction();
+            
+            $usuario = Auth::user();
+            $esCajero = $usuario->hasRole('cajero');
+            
+            // Si es un cajero, verificar que solo use su caja asignada
+            if ($esCajero) {
+                $cajaAsignada = $usuario->cajaAsignada;
+                
+                if (!$cajaAsignada || $cajaAsignada->id != $validated['caja_id']) {
+                    throw new \Exception('Solo puede utilizar la caja que tiene asignada.');
+                }
+            }
 
             // Verificar que la caja seleccionada esté abierta
             $caja = Caja::where('id', $validated['caja_id'])
@@ -81,6 +128,10 @@ class FacturacionController extends Controller
                 throw new \Exception('La caja seleccionada no está disponible o no está abierta.');
             }
 
+            // Calcular monto total con propina
+            $propina = isset($validated['propina']) ? $validated['propina'] : 0;
+            $montoTotal = $orden->subtotal + $propina;
+            
             // 1. Marcar la orden como pagada y pendiente (para comenzar el proceso de preparación)
             $orden->update([
                 'pagado' => true,
@@ -127,7 +178,7 @@ class FacturacionController extends Controller
                         'precio_unitario' => $producto->pivot->precio_unitario,
                         'user_id' => Auth::id(),
                         'observacion' => "Venta de combo - Orden #{$orden->numero_orden}" .
-                                      ($orden->mesa_id ? " - Mesa #{$orden->mesa->numero}" : "")
+                                      ($orden->mesa_id ? " - Mesa #{$orden->mesa->numero}" : " - Sin mesa")
                     ]);
                     
                 } else {
@@ -139,7 +190,7 @@ class FacturacionController extends Controller
                         'precio_unitario' => $producto->pivot->precio_unitario,
                         'user_id' => Auth::id(),
                         'observacion' => "Venta - Orden #{$orden->numero_orden}" .
-                                      ($orden->mesa_id ? " - Mesa #{$orden->mesa->numero}" : "")
+                                      ($orden->mesa_id ? " - Mesa #{$orden->mesa->numero}" : " - Sin mesa")
                     ]);
 
                     // Actualizar el stock del producto
@@ -157,12 +208,14 @@ class FacturacionController extends Controller
                 'caja_id' => $caja->id,
                 'user_id' => Auth::id(),
                 'tipo_movimiento' => 'ingreso',
-                'monto' => $orden->subtotal,
+                'monto' => $montoTotal,
                 'metodo_pago' => $validated['metodo_pago'],
                 'concepto' => "Venta - Orden #{$orden->numero_orden}" . 
-                            ($orden->mesa_id ? " - Mesa #{$orden->mesa->numero}" : ""),
+                            ($orden->mesa_id ? " - Mesa #{$orden->mesa->numero}" : " - Sin mesa") .
+                            ($propina > 0 ? " - Propina: $" . number_format($propina, 2) : ""),
                 'referencia' => $orden->numero_orden,
-                'fecha_movimiento' => now()
+                'fecha_movimiento' => now(),
+                'propina' => $propina
             ]);
 
             // 4. Registrar en el historial de la orden
@@ -184,8 +237,10 @@ class FacturacionController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Orden cobrada con éxito',
-                'cambio' => $validated['monto_recibido'] - $orden->subtotal,
-                'redirect' => route('mesas'),
+                'cambio' => $validated['monto_recibido'] - $montoTotal,
+                'montoTotal' => $montoTotal,
+                'propina' => $propina,
+                'redirect' => $orden->mesa_id ? route('mesas') : route('ordenes.gestion'),
                 'boleta_url' => route('facturacion.boleta', ['orden' => $orden->id])
             ]);
 
@@ -224,7 +279,8 @@ class FacturacionController extends Controller
                 'pagado' => $orden->pagado,
                 'metodo_pago' => $orden->metodo_pago,
                 'subtotal' => $orden->subtotal,
-                'total' => $orden->subtotal, // Usando subtotal como total (sin impuestos)
+                'propina' => $movimientoCaja ? $movimientoCaja->propina : 0,
+                'total' => $movimientoCaja ? $movimientoCaja->monto : $orden->subtotal, // Incluye propina si existe
                 'mesa' => $orden->mesa ? $orden->mesa->numero : 'N/A',
                 'atendido_por' => $orden->user ? $orden->user->name : 'Sistema',
             ],

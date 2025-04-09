@@ -92,7 +92,7 @@ export default function OrdenDetailsDialog({ orden, isOpen, onClose }: OrdenDeta
 
   const handleCobrarOrden = () => {
     if (orden.mesa) {
-      router.visit(route('facturacion.crear', { mesa: orden.mesa.id }));
+      router.visit(route('facturacion.crear', { mesa_id: orden.mesa.id }));
     }
   };
 

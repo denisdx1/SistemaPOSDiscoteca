@@ -23,19 +23,16 @@ import {
   Printer,
   ArrowRight,
   RefreshCcw,
-  CreditCard
+  CreditCard,
+  Clock as ClockIcon,
+  User as UserIcon
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-
-// Extiende la interfaz Window para incluir Echo
-declare global {
-  interface Window {
-    Echo: any;
-  }
-}
+import { formatDistanceToNow } from 'date-fns';
 
 interface GestionOrdenesProps {
   ordenes: Orden[];
+  bartenders?: { id: number; name: string }[];
 }
 
 const EstadoBadge = ({ estado }: { estado: string }) => {
@@ -65,10 +62,12 @@ const EstadoBadge = ({ estado }: { estado: string }) => {
   );
 };
 
-const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes }) => {
-  const { auth } = usePage<{ auth: { user: { role: string } } }>().props;
+const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes, bartenders = [] }) => {
+  const { auth } = usePage<{ auth: { user: { role: string, id: number } } }>().props;
   const userRole = auth.user.role;
+  const userId = auth.user.id;
   const isMesero = userRole === 'mesero';
+  const isBartender = userRole === 'bartender';
   
   const [selectedTab, setSelectedTab] = useState('todas');
   const [selectedOrden, setSelectedOrden] = useState<Orden | null>(null);
@@ -81,23 +80,68 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
   // Cambiar de un solo estado a un objeto que mapea IDs de orden a estados de actualización
   const [updatingOrdersStatus, setUpdatingOrdersStatus] = useState<Record<number, boolean>>({});
   
-  // Estados para controlar el sistema de WebSockets y polling
-  const [websocketConnected, setWebsocketConnected] = useState<boolean>(false);
+  // Estado para almacenar los bartenders que están actualizando asignación
+  const [updatingBartenderAssignment, setUpdatingBartenderAssignment] = useState<Record<number, boolean>>({});
+  
+  // Para controlar el polling
   const [isMobileDevice, setIsMobileDevice] = useState<boolean>(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const echoInstanceRef = useRef<any>(null);
+  
+  // Estado para los cronómetros de órdenes
+  const [cronometros, setCronometros] = useState<Record<number, number>>({});
+  const cronometrosIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Función para actualizar los cronómetros
+  const actualizarCronometros = () => {
+    setCronometros(prevCronometros => {
+      const nuevosEstados = { ...prevCronometros };
+      
+      ordenes.forEach(orden => {
+        // Si la orden está en proceso, incrementar su cronómetro
+        if (orden.estado === 'en_proceso') {
+          nuevosEstados[orden.id!] = (nuevosEstados[orden.id!] || 0) + 1;
+        }
+        // Si la orden acaba de entrar en proceso, iniciar su cronómetro
+        else if (orden.estado === 'pendiente') {
+          nuevosEstados[orden.id!] = 0;
+        }
+        // Para otros estados, mantener el último valor
+      });
+      
+      return nuevosEstados;
+    });
+  };
+  
+  // Formatear segundos a formato mm:ss
+  const formatearTiempo = (segundos: number): string => {
+    const minutos = Math.floor(segundos / 60);
+    const segs = segundos % 60;
+    return `${minutos.toString().padStart(2, '0')}:${segs.toString().padStart(2, '0')}`;
+  };
+  
+  // Configurar cronómetro que se actualiza cada segundo
+  useEffect(() => {
+    // Inicializar cronómetros para órdenes existentes
+    const iniciales: Record<number, number> = {};
+    ordenes.forEach(orden => {
+      iniciales[orden.id!] = orden.estado === 'en_proceso' ? (cronometros[orden.id!] || 0) : 0;
+    });
+    setCronometros(iniciales);
+    
+    // Configurar intervalo para actualizar cronómetros
+    cronometrosIntervalRef.current = setInterval(() => {
+      actualizarCronometros();
+    }, 1000);
+    
+    return () => {
+      if (cronometrosIntervalRef.current) {
+        clearInterval(cronometrosIntervalRef.current);
+      }
+    };
+  }, [ordenes]);
   
   // Función para detectar si es un dispositivo móvil
-  const detectMobileDevice = () => {
-    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-    const isMobile = /(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino/i.test(userAgent) || 
-                    /1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(userAgent.substr(0, 4));
-    
-    setIsMobileDevice(isMobile);
-    console.log("📱 Detección de dispositivo:", isMobile ? "MÓVIL" : "ESCRITORIO");
-    return isMobile;
-  };
+ 
   
   // Función para realizar polling manual
   const fetchLatestOrders = () => {
@@ -110,6 +154,16 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
             
           // Asegurar que el campo pagado se establezca correctamente para todas las órdenes
           const ordenesConEstadoPagadoFijo = response.data.ordenes.map((orden: any) => {
+            // Convertir items a array si es un objeto
+            if (orden.items && !Array.isArray(orden.items) && typeof orden.items === 'object') {
+              try {
+                orden.items = Object.values(orden.items);
+                console.log(`✅ Conversión de items a array para orden ${orden.numero_orden} en polling`);
+              } catch (error) {
+                console.error(`Error al convertir items a array en polling:`, error);
+              }
+            }
+            
             // Si el campo pagado es undefined o si sabemos que debe estar pagada (basado en el estado)
             if (orden.pagado === undefined || orden.estado === 'en_proceso' || orden.estado === 'lista' || orden.estado === 'entregada') {
               console.log(`📝 Forzando estado pagado=true para orden ${orden.id} (${orden.numero_orden}), estado: ${orden.estado}`);
@@ -121,16 +175,47 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
             return orden;
           });
           
-          // Actualizar el estado con los datos procesados
-          setOrdenes(ordenesConEstadoPagadoFijo);
+          // Filtrar órdenes si el usuario es bartender (mostrar solo las asignadas a él)
+          const ordenesFiltradasPorRol = isBartender 
+            ? ordenesConEstadoPagadoFijo.filter((orden: any) => orden.bartender_id === userId)
+            : ordenesConEstadoPagadoFijo;
+          
+          // Si es bartender, hacer logging de las órdenes y sus productos para depuración
+          if (isBartender) {
+            console.log("🍸 Órdenes filtradas para bartender:", ordenesFiltradasPorRol.length);
+            ordenesFiltradasPorRol.forEach((orden: any) => {
+              console.log(`Orden #${orden.numero_orden}, items: ${orden.items?.length || 0}, tipo: ${Array.isArray(orden.items) ? 'array' : typeof orden.items}`);
+              // Verificar que orden.items sea un array antes de usar forEach
+              if (orden.items && Array.isArray(orden.items)) {
+                orden.items.forEach((item: any) => {
+                  console.log(`  - ${item.cantidad}x ${item.producto.nombre} (${item.producto.categoria?.nombre || 'Sin categoría'})`);
+                });
+              } else if (orden.items && typeof orden.items === 'object') {
+                console.log(`  ⚠️ items es un objeto:`, orden.items);
+                // Intenta mostrar las propiedades del objeto
+                Object.keys(orden.items).forEach(key => {
+                  const item = (orden.items as Record<string, any>)[key];
+                  console.log(`  Propiedad ${key}:`, item);
+                  if (item && item.producto) {
+                    console.log(`    - ${item.cantidad}x ${item.producto.nombre} (${item.producto.categoria?.nombre || 'Sin categoría'})`);
+                  }
+                });
+              } else {
+                console.log(`  ⚠️ items no es un array ni objeto:`, typeof orden.items, orden.items);
+              }
+            });
+          }
+          
+          // Actualizar el estado con los datos procesados y filtrados
+          setOrdenes(ordenesFiltradasPorRol);
           
           // Mostrar notificación de éxito
           toast({
             title: "Órdenes actualizadas",
-            description: `Se han cargado ${ordenesConEstadoPagadoFijo.length} órdenes`,
+            description: `Se han cargado ${ordenesFiltradasPorRol.length} órdenes`,
           });
           
-          console.log("🔄 Órdenes actualizadas con estado de pago forzado:", ordenesConEstadoPagadoFijo.length);
+          console.log("🔄 Órdenes actualizadas:", ordenesFiltradasPorRol.length);
         }
       })
       .catch(error => {
@@ -143,8 +228,8 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
           variant: "destructive",
         });
         
-        // Programar reconexión y nueva actualización
-        scheduleReconnect();
+        // Programar nueva actualización después de un tiempo
+        setTimeout(() => fetchLatestOrders(), 5000);
       });
   };
   
@@ -174,131 +259,75 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
     }
   };
   
-  // Función para configurar la conexión WebSocket
-  const setupWebSocketConnection = () => {
-    if (!window.Echo) {
-      console.error("❌ Echo no está disponible");
-      return;
-    }
-    
-    try {
-      console.log("📡 Iniciando conexión WebSocket al canal 'ordenes'");
-      
-      // Almacenar la instancia de Echo para poder desconectarla después
-      if (echoInstanceRef.current) {
-        echoInstanceRef.current.leaveChannel('ordenes');
-      }
-      
-      // Crear nueva conexión
-      const channel = window.Echo.channel('ordenes');
-      echoInstanceRef.current = window.Echo;
-      
-      // Escuchar evento con el punto
-      channel.listen('.orden.updated', (data: any) => {
-        console.log("🔔 Evento recibido con .orden.updated:", data);
-        handleOrdenUpdated(data);
-      });
-      
-      // Escuchar también sin el punto por si acaso
-      channel.listen('orden.updated', (data: any) => {
-        console.log("🔔 Evento recibido con orden.updated:", data);
-        handleOrdenUpdated(data);
-      });
-      
-      // Marcar como conectado
-      setWebsocketConnected(true);
-      console.log("✅ Conexión WebSocket establecida");
-      
-      // Si estamos en un dispositivo móvil, configurar también el polling como respaldo
-      if (isMobileDevice) {
-        setupPolling();
-      }
-    } catch (error) {
-      console.error("❌ Error al configurar WebSocket:", error);
-      setWebsocketConnected(false);
-      
-      // Configurar reconexión automática
-      scheduleReconnect();
-      
-      // Siempre configurar polling como fallback en caso de error
-      setupPolling();
-    }
-  };
-  
-  // Función para programar una reconexión
-  const scheduleReconnect = () => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-    
-    console.log("🔄 Programando reconexión WebSocket en 5 segundos");
-    reconnectTimeoutRef.current = setTimeout(() => {
-      console.log("🔄 Intentando reconexión WebSocket...");
-      setupWebSocketConnection();
-    }, 5000);
-  };
-  
-  // Detectar dispositivo y configurar conexiones al inicio
+  // Configurar polling al inicio
   useEffect(() => {
     // Detectar tipo de dispositivo
-    const isMobile = detectMobileDevice();
     
-    // Configurar WebSockets
-    setupWebSocketConnection();
     
-    // Si es móvil, también configurar polling como respaldo
-    if (isMobile) {
+    // Configurar polling automático
       setupPolling();
-    }
     
     // Limpiar al desmontar
     return () => {
-      console.log("🧹 Limpiando conexiones y temporizadores");
+      console.log("🧹 Limpiando temporizadores");
       
       // Detener polling
       stopPolling();
-      
-      // Limpiar timeout de reconexión
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      
-      // Desconectar WebSocket
-      if (echoInstanceRef.current) {
-        try {
-          echoInstanceRef.current.leaveChannel('ordenes');
-          console.log("🔌 Desconexión de WebSocket completada");
-        } catch (error) {
-          console.error("❌ Error al desconectar WebSocket:", error);
-        }
-      }
     };
   }, [userRole]); // Solo depender del rol de usuario
   
-  // Función para manejar nuevas órdenes o actualizaciones
-  const handleOrdenUpdated = (data: any) => {
-    // Verificar si hay un objeto data anidado
-    console.log("🔍 Analizando datos recibidos:", data);
-    
-    // Resetear contador de reconexión ya que hemos recibido un evento
-    setWebsocketConnected(true);
-    
-    // Usar data directamente o desde el interior si está anidado
-    const ordenData = data.data || data;
-    console.log("📦 Datos completos de orden:", ordenData);
-    console.log("💰 Estado de pago recibido:", ordenData.pagado, typeof ordenData.pagado);
-    
-    // Mostrar notificación de actualización
-    toast({
-      title: "Actualización recibida",
-      description: `Se ha detectado un cambio en la orden #${ordenData.id || 'desconocida'}`,
-      variant: "default",
-    });
-    
-    // Ignorar completamente los datos del WebSocket y forzar actualización desde el servidor
-    console.log("🔄 Ignorando datos WebSocket y forzando actualización completa desde el servidor");
-    setTimeout(() => fetchLatestOrders(), 500); // Pequeño delay para evitar múltiples llamadas simultáneas
-  };
+  // Cuando se inicializa el componente, filtrar las órdenes iniciales si es un bartender
+  useEffect(() => {
+    // Si el usuario es un bartender, filtrar sus órdenes al inicio
+    if (isBartender) {
+      // Asegurarnos de no perder ningún producto al filtrar
+      const ordenesFiltradas = initialOrdenes
+        .filter(orden => orden.bartender_id === userId)
+        .map(orden => {
+          // Nos aseguramos de mantener TODOS los items sin ningún filtro adicional
+          // Si items es un objeto y no un array, lo convertimos a array
+          if (orden.items && !Array.isArray(orden.items)) {
+            console.log(`⚠️ Orden ${orden.numero_orden}: items es un objeto, convirtiendo a array`);
+            // Verificar si es un objeto iterable
+            if (typeof orden.items === 'object') {
+              try {
+                orden.items = Object.values(orden.items);
+                console.log(`✅ Conversión exitosa para orden ${orden.numero_orden}, ahora items es un array de ${orden.items.length} elementos`);
+              } catch (error) {
+                console.error(`Error al convertir items a array:`, error);
+              }
+            }
+          }
+          return orden;
+        });
+      
+      setOrdenes(ordenesFiltradas);
+      console.log(`🔍 Mostrando solo órdenes para el bartender (ID: ${userId}):`, ordenesFiltradas.length);
+      
+      // Log detallado para depuración
+      ordenesFiltradas.forEach(orden => {
+        console.log(`Orden #${orden.numero_orden} - Items: ${orden.items?.length || 0}`);
+        // Verificar que orden.items sea un array antes de usar forEach
+        if (orden.items && Array.isArray(orden.items)) {
+          orden.items.forEach(item => {
+            console.log(`  - ${item.cantidad}x ${item.producto.nombre} (${item.producto.categoria?.nombre || 'Sin categoría'})`);
+          });
+        } else if (orden.items && typeof orden.items === 'object') {
+          console.log(`  ⚠️ items es un objeto:`, orden.items);
+          // Intenta mostrar las propiedades del objeto
+          Object.keys(orden.items).forEach(key => {
+            const item = (orden.items as Record<string, any>)[key];
+            console.log(`  Propiedad ${key}:`, item);
+            if (item && item.producto) {
+              console.log(`    - ${item.cantidad}x ${item.producto.nombre} (${item.producto.categoria?.nombre || 'Sin categoría'})`);
+            }
+          });
+        } else {
+          console.log(`  ⚠️ items no es un array ni objeto:`, typeof orden.items, orden.items);
+        }
+      });
+    }
+  }, []);
   
   // Filtrar órdenes según la pestaña seleccionada
   const filteredOrdenes = selectedTab === 'todas' 
@@ -470,6 +499,76 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
     return true;
   };
 
+  const handleChangeBartender = async (ordenId: number, bartenderId: string) => {
+    // Establecer el estado de carga para esta orden específica
+    setUpdatingBartenderAssignment(prev => ({
+      ...prev,
+      [ordenId]: true
+    }));
+    
+    try {
+      const response = await axios.patch(route('ordenes.assign-bartender', ordenId), {
+        bartender_id: bartenderId === 'null' ? null : bartenderId
+      });
+      
+      if (response.data.success) {
+        // Actualizar el estado local preservando los productos
+        fetchLatestOrders(); // Forzar actualización completa desde el servidor
+        
+        // Mostrar mensaje de éxito
+        toast({
+          title: "Bartender actualizado",
+          description: bartenderId === 'null' 
+            ? "Se ha quitado la asignación de bartender" 
+            : `Se ha asignado un nuevo bartender a la orden`,
+        });
+      }
+    } catch (error) {
+      console.error('Error al asignar bartender:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo asignar el bartender a la orden",
+        variant: "destructive",
+      });
+    } finally {
+      // Restablecer el estado de carga
+      setUpdatingBartenderAssignment(prev => ({
+        ...prev,
+        [ordenId]: false
+      }));
+    }
+  };
+
+  // Funciones de utilidad para el manejo del tiempo
+  const formatHour = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('es-ES', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
+  const calculateTimePercentage = (startTimeStr: string, timeLimit: number) => {
+    const startTime = new Date(startTimeStr);
+    const currentTime = new Date();
+    const elapsedMinutes = (currentTime.getTime() - startTime.getTime()) / (1000 * 60);
+    return Math.min(100, (elapsedMinutes / timeLimit) * 100);
+  };
+
+  const calculateElapsedTime = (startTimeStr: string) => {
+    const startTime = new Date(startTimeStr);
+    const currentTime = new Date();
+    const elapsedMinutes = Math.floor((currentTime.getTime() - startTime.getTime()) / (1000 * 60));
+    
+    if (elapsedMinutes < 60) {
+      return `${elapsedMinutes} min`;
+    } else {
+      const hours = Math.floor(elapsedMinutes / 60);
+      const mins = elapsedMinutes % 60;
+      return `${hours}h ${mins}m`;
+    }
+  };
+
   return (
     <DashboardLayout>
       <Head title="Gestión de Órdenes" />
@@ -477,22 +576,17 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
       <div className="container mx-auto py-6">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900">Gestión de Órdenes</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Gestión de Órdenes</h1>
             <p className="text-muted-foreground mt-1">
               Administración de órdenes en preparación
             </p>
           </div>
           
           <div className="flex items-center space-x-2">
-            <div className="flex items-center bg-white border rounded-md px-3 py-1.5 shadow-sm">
-              <span className={`inline-block w-2 h-2 rounded-full mr-2 ${websocketConnected ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></span>
-              <span className="text-sm text-gray-600">{websocketConnected ? 'Conectado' : 'Desconectado'}</span>
-              {isMobileDevice && <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">Modo móvil</span>}
-            </div>
             <Button 
               variant="outline" 
               onClick={handleRefresh} 
-              className="flex items-center bg-white border shadow-sm hover:bg-gray-50"
+              className="flex items-center bg-white border shadow-sm hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-700"
             >
               <RefreshCcw className="h-4 w-4 mr-2" />
               Actualizar
@@ -501,176 +595,324 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
         </div>
         
         <Tabs defaultValue="todas" value={selectedTab} onValueChange={setSelectedTab}>
-          <TabsList className="mb-4 bg-gray-50 p-1 border rounded-md">
-            <TabsTrigger value="todas" className="px-4 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+          <TabsList className="mb-4 bg-gray-50 p-1 border rounded-md dark:bg-gray-800 dark:border-gray-700">
+            <TabsTrigger value="todas" className="px-4 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-gray-700">
               Todas ({ordenes.length})
             </TabsTrigger>
-            <TabsTrigger value="pendiente" className="px-4 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <TabsTrigger value="pendiente" className="px-4 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-gray-700">
               Pendientes ({ordenes.filter(o => o.estado === 'pendiente').length})
             </TabsTrigger>
-            <TabsTrigger value="en_proceso" className="px-4 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <TabsTrigger value="en_proceso" className="px-4 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-gray-700">
               En proceso ({ordenes.filter(o => o.estado === 'en_proceso').length})
             </TabsTrigger>
-            <TabsTrigger value="lista" className="px-4 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <TabsTrigger value="lista" className="px-4 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-gray-700">
               Listas ({ordenes.filter(o => o.estado === 'lista').length})
             </TabsTrigger>
           </TabsList>
           
           <TabsContent value={selectedTab} className="mt-0">
             {filteredOrdenes.length === 0 ? (
-              <div className="text-center py-10 border rounded-lg bg-gray-50">
-                <p className="text-gray-500">No hay órdenes {selectedTab !== 'todas' ? `en estado "${getEstadoText(selectedTab)}"` : ''}</p>
+              <div className="text-center py-10 border rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300">
+                <p className="text-gray-500 dark:text-gray-400">No hay órdenes {selectedTab !== 'todas' ? `en estado "${getEstadoText(selectedTab)}"` : ''}</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className={isBartender ? "flex flex-row flex-wrap gap-2 justify-center" : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"}>
                 {filteredOrdenes.map((orden) => (
-                  <Card key={orden.id} className={`
-                    overflow-hidden shadow-sm 
-                    ${orden.estado === 'pendiente' ? 'border-blue-100' : ''}
-                    ${orden.estado === 'en_proceso' ? 'border-amber-100' : ''}
-                    ${orden.estado === 'lista' ? 'border-emerald-100' : ''}
-                    ${orden.estado === 'entregada' ? 'border-gray-200' : ''}
-                  `}>
-                    {userRole === 'bartender' ? (
-                      // Diseño minimalista mejorado para el rol de bartender
-                      <>
-                        <CardHeader className="pb-2 pt-2 border-b" style={{ background: '#f8f9fa', borderColor: '#e9ecef' }}>
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <div className="text-lg font-semibold text-gray-800">{orden.numero_orden}</div>
-                              <div className="text-sm text-gray-600">
-                                {orden.user?.name || 'Sin asignar'}
+                  isBartender ? (
+                    <div
+                      key={orden.id}
+                      className={`relative flex flex-col min-w-[240px] max-w-[300px] w-[320px] rounded-lg border-2 landscape:h-[200px] overflow-hidden shadow-md mx-2 my-3 ${
+                        orden.estado === 'pendiente'
+                          ? 'border-blue-300 dark:border-blue-900'
+                          : orden.estado === 'en_proceso'
+                          ? 'border-amber-300 dark:border-amber-900'
+                          : orden.estado === 'lista'
+                          ? 'border-emerald-300 dark:border-emerald-900'
+                          : 'border-gray-200 dark:border-gray-700'
+                      }`}
+                    >
+                      <div className="flex flex-row h-full landscape:h-auto">
+                        {/* Sección izquierda: usuario y tiempo */}
+                        <div className="w-2/5 p-3 bg-gray-50 dark:bg-gray-800 landscape:w-1/3 flex flex-col landscape:justify-center">
+                          <div className="flex items-center mb-2 text-sm landscape:mb-1 landscape:text-xs">
+                            <UserIcon className="h-4 w-4 mr-1.5 text-gray-400 landscape:h-3 landscape:w-3 landscape:mr-1" />
+                            <span className="font-medium text-gray-600 dark:text-gray-200 text-sm landscape:text-xs truncate">
+                              {orden.user?.name || "Usuario"}
+                            </span>
+                          </div>
+
+                          <div className="mb-2 text-sm landscape:mb-1">
+                            <div className="flex items-center landscape:text-xs">
+                              <ClockIcon className="h-4 w-4 mr-1.5 text-gray-400 landscape:h-3 landscape:w-3 landscape:mr-1" />
+                              <span className="font-medium text-gray-600 dark:text-gray-300 text-sm landscape:text-xs">
+                                {orden.created_at ? formatHour(orden.created_at) : "Hora no disponible"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {orden.estado === 'en_proceso' && orden.hora_inicio && (
+                            <div className="mt-1">
+                              <div className="flex justify-between text-xs landscape:text-[9px] mb-1">
+                                <span>{orden.hora_inicio ? formatHour(orden.hora_inicio.toString()) : ''}</span>
+                                <span>{orden.hora_inicio ? calculateElapsedTime(orden.hora_inicio.toString()) : ''}</span>
+                              </div>
+                              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 landscape:h-1">
+                                <div 
+                                  className="bg-amber-500 h-1.5 landscape:h-1 rounded-full" 
+                                  style={{ 
+                                    width: `${calculateTimePercentage(orden.hora_inicio.toString(), 15)}%`,
+                                    backgroundColor: calculateTimePercentage(orden.hora_inicio.toString(), 15) > 80 ? '#ef4444' : '#f59e0b'
+                                  }}
+                                ></div>
                               </div>
                             </div>
-                            <Badge variant={orden.pagado ? "default" : "destructive"} className="text-xs px-2 py-1 rounded-md">
-                              {orden.pagado ? 'PAGADO' : 'NO PAGADO'}
-                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Sección derecha: productos */}
+                        <div className="w-3/5 p-3 landscape:w-2/3 dark:bg-gray-900">
+                          <div className="flex justify-between items-center mb-2">
+                            <h4 className="text-sm font-medium landscape:text-sm dark:text-gray-200">
+                              Productos ({orden.items ? (Array.isArray(orden.items) ? orden.items.length : Object.keys(orden.items).length) : 0})
+                            </h4>
                           </div>
-                        </CardHeader>
-                        
-                        <CardContent className="p-0 bg-white">
-                          <ul className="divide-y divide-gray-100">
-                            {orden.items && orden.items.length > 0 ? (
-                              orden.items.map((item, index) => (
-                                <li key={index} className="px-4 py-3 flex justify-between items-center">
-                                  <div className="font-medium text-gray-700">
-                                    <span className="inline-block bg-gray-100 text-gray-700 rounded-full px-2 py-0.5 text-xs mr-2">
-                                      {item.cantidad}x
-                                    </span>
-                                    {item.producto.nombre}
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    className={`
-                                      ${orden.estado === 'pendiente' ? 'bg-blue-500 hover:bg-blue-600 text-white' : ''}
-                                      ${orden.estado === 'en_proceso' ? 'bg-amber-500 hover:bg-amber-600 text-white' : ''}
-                                      ${orden.estado === 'lista' ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : ''}
-                                      transition-colors duration-200
-                                    `}
-                                    onClick={() => handleUpdateStatus(orden.id!, getNextState(orden.estado))}
-                                    disabled={updatingOrdersStatus[orden.id!] || false || !orden.pagado}
-                                    title={!orden.pagado ? "Este pedido aún no está pagado" : ""}
-                                  >
-                                    {orden.estado === 'pendiente' && 'Preparar'}
-                                    {orden.estado === 'en_proceso' && 'Listo'}
-                                    {orden.estado === 'lista' && 'Entregar'}
-                                  </Button>
-                                </li>
-                              ))
-                            ) : (
-                              <li className="px-4 py-3 text-gray-500 text-center">
-                                No hay tragos en esta orden
+                          
+                          <ul className="space-y-2 landscape:space-y-1">
+                            {orden.items && (
+                              (() => {
+                                // Manejar el caso cuando items es un array
+                                if (Array.isArray(orden.items)) {
+                                  return orden.items.slice(0, 6).map((item, index) => (
+                                    <li key={index} className="flex justify-between items-center border-b border-gray-100 dark:border-gray-700 pb-1.5 text-sm landscape:pb-1">
+                                      <div className="flex items-center gap-2 landscape:gap-1.5">
+                                        <span className="inline-flex items-center justify-center w-6 h-6 bg-gray-100 dark:bg-gray-700 rounded-full text-gray-700 dark:text-gray-200 font-medium text-xs landscape:w-5 landscape:h-5 landscape:text-[11px]">
+                                          {item.cantidad}
+                                        </span>
+                                        <span className="font-medium text-sm landscape:text-xs truncate max-w-[150px] dark:text-gray-200">
+                                          {item.producto.nombre}
+                                          <span className="text-xs ml-1 text-gray-500 dark:text-gray-400 landscape:text-[10px] landscape:ml-0.5">
+                                            ({item.producto.categoria?.nombre || 'Sin categoría'})
+                                          </span>
+                                        </span>
+                                      </div>
+                                    </li>
+                                  ));
+                                } 
+                                // Manejar el caso cuando items es un objeto
+                                else if (typeof orden.items === 'object') {
+                                  const itemsArray = Object.values(orden.items);
+                                  return itemsArray.slice(0, 6).map((item: any, index) => (
+                                    <li key={index} className="flex justify-between items-center border-b border-gray-100 dark:border-gray-700 pb-1.5 text-sm landscape:pb-1">
+                                      <div className="flex items-center gap-2 landscape:gap-1.5">
+                                        <span className="inline-flex items-center justify-center w-6 h-6 bg-gray-100 dark:bg-gray-700 rounded-full text-gray-700 dark:text-gray-200 font-medium text-xs landscape:w-5 landscape:h-5 landscape:text-[11px]">
+                                          {item.cantidad}
+                                        </span>
+                                        <span className="font-medium text-sm landscape:text-xs truncate max-w-[150px] dark:text-gray-200">
+                                          {item.producto.nombre}
+                                          <span className="text-xs ml-1 text-gray-500 dark:text-gray-400 landscape:text-[10px] landscape:ml-0.5">
+                                            ({item.producto.categoria?.nombre || 'Sin categoría'})
+                                          </span>
+                                        </span>
+                                      </div>
+                                    </li>
+                                  ));
+                                } 
+                                return <li className="text-gray-500 dark:text-gray-400 text-sm landscape:text-xs">Formato de productos no reconocido</li>;
+                              })()
+                            ) || (
+                              <li className="text-gray-500 dark:text-gray-400 text-sm landscape:text-xs">No hay productos</li>
+                            )}
+                            {orden.items && (
+                              (Array.isArray(orden.items) && orden.items.length > 6) || 
+                              (typeof orden.items === 'object' && Object.keys(orden.items).length > 6)
+                            ) && (
+                              <li className="text-xs text-center text-gray-500 dark:text-gray-400 italic pt-1">
+                                {(Array.isArray(orden.items) ? orden.items.length : Object.keys(orden.items).length) - 6} productos más...
                               </li>
                             )}
                           </ul>
-                        </CardContent>
-                      </>
-                    ) : (
-                      // Diseño original para otros roles
-                      <>
-                        <CardHeader className="pb-2">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <CardTitle className="text-lg">{orden.numero_orden}</CardTitle>
-                              <CardDescription>
-                                {orden.mesa ? `Mesa ${orden.mesa.numero}` : 'Sin mesa'}
-                                <Badge variant={orden.pagado ? "default" : "destructive"} className="ml-2 text-[10px]">
-                                  {orden.pagado ? 'PAGADO' : 'NO PAGADO'}
-                                </Badge>
-                              </CardDescription>
-                            </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    // Vista normal para otros roles
+                    <Card key={orden.id} className={`
+                      overflow-hidden shadow-sm 
+                      ${orden.estado === 'pendiente' ? 'border-blue-100 dark:border-blue-800' : ''}
+                      ${orden.estado === 'en_proceso' ? 'border-amber-100 dark:border-amber-800' : ''}
+                      ${orden.estado === 'lista' ? 'border-emerald-100 dark:border-emerald-800' : ''}
+                      ${orden.estado === 'entregada' ? 'border-gray-200 dark:border-gray-700' : ''}
+                    `}>
+                      <CardHeader className="py-3 border-b bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex justify-between items-center">
+                            <div className="font-medium text-gray-900 dark:text-gray-100">{orden.numero_orden}</div>
+                            <div className="text-xs flex items-center gap-1">
+                              <span className="text-gray-500 dark:text-gray-400">{orden.created_at && format(new Date(orden.created_at), 'HH:mm', { locale: es })}</span>
                             <EstadoBadge estado={orden.estado} />
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                              {orden.mesa ? `Mesa ${orden.mesa.numero}` : 'Sin mesa'} {orden.created_at && format(new Date(orden.created_at), 'HH:mm', { locale: es })}
+                            </div>
+                          </div>
                           </div>
                         </CardHeader>
                         
-                        <CardContent className="pb-2">
-                          <div className="space-y-1 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Fecha:</span>
-                              <span>{orden.created_at && format(new Date(orden.created_at), 'dd/MM/yy HH:mm', { locale: es })}</span>
+                      <CardContent className="p-0">
+                        <div className="p-3 border-b dark:border-gray-700">
+                          <div className="flex justify-between items-center mb-2">
+                            <div className="text-sm">
+                              <span className="text-gray-500 dark:text-gray-400">Por:</span> <span className="dark:text-gray-300">{orden.user?.name || 'admin'}</span>
                             </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Total:</span>
-                              <span className="font-medium">{formatCurrency(orden.total)}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="font-medium dark:text-gray-300">
+                                {formatCurrency(orden.total)}
                             </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Items:</span>
-                              <span>{orden.items?.length || 0} productos</span>
+                              <Badge variant={orden.pagado ? "default" : "destructive"} className="text-xs">
+                                {orden.pagado ? 'Pagado' : 'No pagado'}
+                              </Badge>
                             </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Creado por:</span>
-                              <span>{orden.user?.name || 'N/A'}</span>
                             </div>
-                          </div>
                           
-                          <div className="mt-4">
-                            <h4 className="text-sm font-medium mb-1">Productos principales:</h4>
-                            <ul className="text-sm space-y-1 list-disc list-inside">
-                              {orden.items && orden.items.length > 0 ? (
-                                <>
-                                  {orden.items.slice(0, 3).map((item, index) => (
-                                    <li key={index}>
-                                      {item.cantidad}x {item.producto.nombre}
-                                    </li>
-                                  ))}
-                                  {orden.items.length > 3 && (
-                                    <li className="text-muted-foreground">
-                                      + {orden.items.length - 3} más...
-                                    </li>
-                                  )}
-                                </>
-                              ) : (
-                                <li className="text-muted-foreground">No hay productos</li>
+                          <div className="flex justify-between items-center">
+                            <div className="text-sm">
+                              <span className="text-gray-500 dark:text-gray-400">Bartender:</span> 
+                          </div>
+                            <select 
+                              className="text-sm border rounded p-1 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200" 
+                              value={orden.bartender_id || ''}
+                              onChange={(e) => {
+                                const bartenderId = e.target.value === '' ? null : parseInt(e.target.value);
+                                
+                                // Establecer el estado de carga para esta orden
+                                setUpdatingOrdersStatus(prev => ({
+                                  ...prev,
+                                  [orden.id!]: true
+                                }));
+                                
+                                // Realizar la llamada a la API
+                                axios.patch(route('ordenes.assign-bartender', orden.id), {
+                                  bartender_id: bartenderId
+                                })
+                                .then(response => {
+                                  if (response.data.success) {
+                                    // Actualizar el estado local
+                                    fetchLatestOrders(); // Forzar actualización completa desde el servidor
+                                    
+                                    // Mostrar mensaje de éxito
+                                    toast({
+                                      title: "Bartender actualizado",
+                                      description: bartenderId ? "Se ha asignado un nuevo bartender" : "Se ha quitado el bartender asignado",
+                                    });
+                                  }
+                                })
+                                .catch(error => {
+                                  console.error('Error al asignar bartender:', error);
+                                  toast({
+                                    title: "Error",
+                                    description: "No se pudo asignar el bartender",
+                                    variant: "destructive",
+                                  });
+                                })
+                                .finally(() => {
+                                  // Restablecer el estado de carga
+                                  setUpdatingOrdersStatus(prev => ({
+                                    ...prev,
+                                    [orden.id!]: false
+                                  }));
+                                });
+                              }}
+                              disabled={updatingOrdersStatus[orden.id!] || false}
+                            >
+                              <option value="">Sin asignar</option>
+                              {bartenders.map(bartender => (
+                                <option key={bartender.id} value={bartender.id.toString()}>
+                                  {bartender.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        
+                        <div className="p-3">
+                          <h4 className="text-sm font-medium mb-2 dark:text-gray-200">Productos</h4>
+                          <ul className="space-y-2">
+                            {orden.items && orden.items.length > 0 ? (
+                              orden.items.map((item, index) => (
+                                <li key={index} className="flex justify-between items-center">
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-flex items-center justify-center w-6 h-6 bg-gray-100 dark:bg-gray-700 rounded-full text-gray-700 dark:text-gray-200 text-xs">
+                                      {item.cantidad}
+                                    </span>
+                                    <span className="dark:text-gray-300">
+                                      {item.producto.nombre}
+                                      {item.producto.categoria && item.producto.categoria.nombre !== 'Tragos' && isBartender && (
+                                        <span className="text-xs ml-1 text-gray-500 dark:text-gray-400">
+                                          ({item.producto.categoria.nombre})
+                                        </span>
+                                      )}
+                                    </span>
+                                  </div>
+                                </li>
+                              ))
+                            ) : (
+                              <li className="text-gray-500 dark:text-gray-400 text-sm">No hay productos</li>
                               )}
                             </ul>
                           </div>
                         </CardContent>
                         
-                        <CardFooter className="pt-2 flex justify-between">
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={() => handleVerDetalles(orden)}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            Ver detalles
-                          </Button>
+                      <CardFooter className="px-3 py-3 border-t bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
+                        <div className="flex flex-col space-y-2 w-full">
+                          {/* Primera fila de botones: Ver Detalles y Cobrar (2 columnas) */}
+                          <div className="grid grid-cols-2 gap-2 w-full">
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => handleVerDetalles(orden)}
+                              className="w-full text-xs px-2"
+                            >
+                              <Eye className="h-3.5 w-3.5 mr-1.5" />
+                              Ver Detalles
+                            </Button>
+                            
+                            {!orden.pagado && (
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={() => window.location.href = `/facturacion/crear?orden_id=${orden.id}`}
+                                className="w-full text-xs px-2 bg-green-600 hover:bg-green-700"
+                              >
+                                <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                                Cobrar
+                              </Button>
+                            )}
+                          </div>
                           
+                          {/* Segunda fila: Botón de estado (ocupa todo el ancho) */}
                           {orden.estado !== 'entregada' && orden.estado !== 'cancelada' && canUpdateOrderStatus(orden.estado) && (
                             <Button
                               size="sm"
                               onClick={() => handleUpdateStatus(orden.id!, getNextState(orden.estado))}
                               disabled={updatingOrdersStatus[orden.id!] || false || !orden.pagado}
                               title={!orden.pagado ? "Este pedido aún no está pagado" : ""}
+                              className={`
+                                w-full text-xs
+                                ${orden.estado === 'pendiente' ? 'bg-blue-500 hover:bg-blue-600' : ''}
+                                ${orden.estado === 'en_proceso' ? 'bg-amber-500 hover:bg-amber-600' : ''}
+                                ${orden.estado === 'lista' ? 'bg-emerald-500 hover:bg-emerald-600' : ''}
+                              `}
                             >
                               {getNextStateIcon(orden.estado)}
                               {getNextStateAction(orden.estado)}
                             </Button>
                           )}
-                        </CardFooter>
-                      </>
-                    )}
-                  </Card>
+                        </div>
+                      </CardFooter>
+                    </Card>
+                  )
                 ))}
               </div>
             )}
@@ -690,17 +932,17 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-3 text-sm">
                 <div>
                   <p className="text-xs text-muted-foreground">Número de Orden</p>
-                  <p className="font-medium">{selectedOrden.numero_orden}</p>
+                  <p className="font-medium dark:text-gray-200">{selectedOrden.numero_orden}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Mesa</p>
-                  <p className="font-medium">
+                  <p className="font-medium dark:text-gray-200">
                     {selectedOrden.mesa ? `Mesa ${selectedOrden.mesa.numero}` : 'Sin mesa'}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Fecha</p>
-                  <p className="font-medium">
+                  <p className="font-medium dark:text-gray-200">
                     {selectedOrden.created_at && format(new Date(selectedOrden.created_at), 'dd/MM/yyyy HH:mm', { locale: es })}
                   </p>
                 </div>
@@ -712,17 +954,17 @@ const GestionOrdenes: React.FC<GestionOrdenesProps> = ({ ordenes: initialOrdenes
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Pago</p>
-                  <p className="font-medium">
+                  <p className="font-medium dark:text-gray-200">
                     {selectedOrden.pagado ? 'Pagado' : 'Pendiente'}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Total</p>
-                  <p className="font-medium">{formatCurrency(selectedOrden.total)}</p>
+                  <p className="font-medium dark:text-gray-200">{formatCurrency(selectedOrden.total)}</p>
                 </div>
                 <div className="col-span-2">
                   <p className="text-xs text-muted-foreground">Creado por</p>
-                  <p className="font-medium">{selectedOrden.user?.name || 'N/A'}</p>
+                  <p className="font-medium dark:text-gray-200">{selectedOrden.user?.name || 'N/A'}</p>
                 </div>
               </div>
               

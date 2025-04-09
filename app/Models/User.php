@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\Role;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -23,6 +24,7 @@ class User extends Authenticatable
         'email',
         'role',
         'role_id',
+        'caja_asignada_id',
         'password',
     ];
 
@@ -58,10 +60,24 @@ class User extends Authenticatable
     }
 
     /**
+     * Relación con la caja asignada
+     */
+    public function cajaAsignada(): BelongsTo
+    {
+        return $this->belongsTo(Caja::class, 'caja_asignada_id');
+    }
+
+    /**
      * Comprobar si el usuario tiene un rol específico
      */
     public function hasRole(string $roleName): bool
     {
+        // Si role es un string, comparar directamente
+        if (is_string($this->role)) {
+            return $this->role === $roleName;
+        }
+        
+        // Si es un objeto Role, usar la propiedad nombre
         return $this->role && $this->role->nombre === $roleName;
     }
 
@@ -70,6 +86,12 @@ class User extends Authenticatable
      */
     public function hasPermission(string $permissionSlug): bool
     {
+        // Si role es un string, necesitamos obtener el objeto Role
+        if (is_string($this->role)) {
+            $role = Role::where('nombre', $this->role)->first();
+            return $role && $role->permissions->contains('slug', $permissionSlug);
+        }
+        
         return $this->role && $this->role->permissions->contains('slug', $permissionSlug);
     }
 
@@ -78,6 +100,12 @@ class User extends Authenticatable
      */
     public function hasAccessToModule(string $module): bool
     {
+        // Si role es un string, necesitamos obtener el objeto Role
+        if (is_string($this->role)) {
+            $role = Role::where('nombre', $this->role)->first();
+            return $role && $role->permissions->where('modulo', $module)->count() > 0;
+        }
+        
         return $this->role && $this->role->permissions->where('modulo', $module)->count() > 0;
     }
 }

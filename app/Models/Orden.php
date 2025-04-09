@@ -28,6 +28,7 @@ class Orden extends Model
         'numero_orden',
         'mesa_id',
         'user_id',
+        'bartender_id',
         'estado',
         'subtotal',
         'impuestos',
@@ -82,6 +83,14 @@ class Orden extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Obtiene el bartender asignado a esta orden.
+     */
+    public function bartender(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'bartender_id');
     }
 
     /**

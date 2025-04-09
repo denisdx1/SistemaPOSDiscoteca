@@ -19,6 +19,8 @@ use App\Http\Controllers\MonedaController;
 use App\Http\Controllers\ConfiguracionGeneralController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 Route::get('/', function () {
     return redirect()->route('login');
@@ -89,8 +91,8 @@ Route::middleware('auth')->group(function () {
             ->withoutMiddleware('role:administrador,cajero')
             ->middleware('role:administrador,cajero');
         
-        // Rutas de Movimientos de Inventario - Solo administrador puede modificar el inventario
-        Route::middleware('role:administrador')->group(function () {
+        // Rutas de Movimientos de Inventario - Solo administrador puede modificar y ver el inventario
+        Route::middleware('role:administrador,cajero')->group(function () {
             Route::get('/movimientos', [MovimientoInventarioController::class, 'index'])->name('inventario.movimientos');
             Route::post('/movimientos', [MovimientoInventarioController::class, 'store'])->name('inventario.movimientos.store');
         });
@@ -106,7 +108,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // Módulo de Ordenes - Administrador, Mesero y Bartender
-    Route::prefix('ordenes')->middleware('role:administrador,bartender,cajero')->group(function () {
+    Route::prefix('ordenes')->middleware('role:administrador,bartender,cajero,mesero')->group(function () {
         Route::get('/', [OrdenController::class, 'index'])->name('ordenes');
         Route::get('/nueva/{mesa?}', [OrdenController::class, 'create'])->name('ordenes.nueva');
         Route::post('/', [OrdenController::class, 'store'])->name('ordenes.store');
@@ -124,6 +126,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/{orden}', [OrdenController::class, 'show'])->name('ordenes.show');
             Route::patch('/{orden}/estado', [OrdenController::class, 'updateStatus'])->name('ordenes.update-status');
             Route::patch('/{orden}/pagar', [OrdenController::class, 'markAsPaid'])->name('ordenes.mark-as-paid');
+            Route::patch('/{orden}/asignar-bartender', [OrdenController::class, 'assignBartender'])->name('ordenes.assign-bartender');
             Route::delete('/{orden}', [OrdenController::class, 'destroy'])->name('ordenes.destroy');
         });
     });
@@ -210,5 +213,29 @@ Route::middleware('auth')->group(function () {
     Route::post('/configuracion/actualizar', [ConfiguracionGeneralController::class, 'actualizar'])->name('configuracion.actualizar');
     Route::get('/configuracion/obtener-tema', [ConfiguracionGeneralController::class, 'obtenerTema'])->name('configuracion.obtener-tema');
 });
+
+// Rutas para diagnóstico de WebSockets
+Route::get('/debug/websocket', function () {
+    return Inertia::render('Debug/WebsocketTester');
+})->name('debug.websocket');
+
+Route::post('/debug/emit-test-event', function (Request $request) {
+    $data = $request->validate([
+        'message' => 'required|string',
+        'channel' => 'required|string',
+        'event' => 'required|string',
+    ]);
+    
+    Log::info('Emitiendo evento de prueba manual', $data);
+    
+    // Emitir evento directamente usando broadcast
+    broadcast(new \App\Events\TestEvent(
+        $data['message'],
+        $data['channel'],
+        $data['event']
+    ));
+    
+    return response()->json(['success' => true, 'message' => 'Evento emitido correctamente']);
+})->name('debug.emit-event');
 
 require __DIR__.'/auth.php';

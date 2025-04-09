@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\API\OrdenController;
+use App\Http\Controllers\API\BartenderController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 
@@ -10,5 +11,6 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
     
-
+    // Rutas para bartenders
+    Route::get('/bartenders/conteo-ordenes', [BartenderController::class, 'conteoOrdenes']);
 }); 

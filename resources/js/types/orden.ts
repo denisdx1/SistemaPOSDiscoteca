@@ -46,12 +46,20 @@ export type ItemOrden = {
 };
 
 export type Orden = {
+  hora_inicio: boolean;
+  productos: any;
   id?: number;
   numero_orden?: string;
   mesa_id: number | null;
   mesa?: Mesa | null;
   user_id?: number;
   user?: {
+    id: number;
+    name: string;
+    email?: string;
+  };
+  bartender_id?: number | null;
+  bartender?: {
     id: number;
     name: string;
     email?: string;

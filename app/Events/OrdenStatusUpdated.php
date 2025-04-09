@@ -33,9 +33,13 @@ class OrdenStatusUpdated implements ShouldBroadcast
      */
     public function broadcastOn(): array
     {
-        Log::info('OrdenStatusUpdated::broadcastOn llamado', [
+        Log::info('OrdenStatusUpdated::broadcastOn llamado - Transmitiendo en canal "ordenes"', [
             'orden_id' => $this->orden->id,
-            'canal' => 'ordenes'
+            'estado' => $this->orden->estado,
+            'pagado' => $this->orden->pagado ? 'Sí' : 'No',
+            'evento' => 'orden.updated',
+            'canal' => 'ordenes',
+            'broadcast_driver' => env('BROADCAST_DRIVER')
         ]);
         
         return [
@@ -48,10 +52,16 @@ class OrdenStatusUpdated implements ShouldBroadcast
      */
     public function broadcastAs(): string
     {
-        Log::info('OrdenStatusUpdated::broadcastAs llamado', [
-            'evento' => 'orden.updated'
+        Log::info('OrdenStatusUpdated::broadcastAs llamado - NOMBRE DE EVENTO FORZADO', [
+            'evento' => 'orden.updated',
+            'orden_id' => $this->orden->id,
+            'numero_orden' => $this->orden->numero_orden,
+            'broadcast_driver' => env('BROADCAST_DRIVER'),
+            'reverb_host' => env('REVERB_HOST'),
+            'reverb_port' => env('REVERB_PORT')
         ]);
         
+        // Forzamos un nombre de evento consistente
         return 'orden.updated';
     }
 
@@ -72,84 +82,42 @@ class OrdenStatusUpdated implements ShouldBroadcast
 
     /**
      * Get the data to broadcast.
-     *
-     * @return array<string, mixed>
      */
     public function broadcastWith(): array
     {
-        Log::info('OrdenStatusUpdated::broadcastWith llamado', [
+        Log::info('OrdenStatusUpdated::broadcastWith llamado - Preparando datos para broadcast', [
             'orden_id' => $this->orden->id,
-            'estado' => $this->orden->estado
+            'estado' => $this->orden->estado,
+            'broadcast_driver' => env('BROADCAST_DRIVER')
         ]);
         
-        // Cargar la relación de productos si no está cargada
-        if (!$this->orden->relationLoaded('productos')) {
-            Log::info('Cargando relaciones de productos que no estaban cargadas');
-            $this->orden->load(['productos.categoria']);
-        }
+        // Forzar que el campo pagado sea booleano
+        $pagado = (bool)$this->orden->pagado;
         
-        // Log para verificar los productos de la orden
-        if ($this->orden->productos->count() > 0) {
-            Log::info('Productos en la orden:', [
-                'total' => $this->orden->productos->count(),
-                'con_categoria_1' => $this->orden->productos->where('categoria_id', 1)->count(),
-                'ids_productos' => $this->orden->productos->pluck('id')->toArray(),
-                'ids_categorias' => $this->orden->productos->pluck('categoria_id')->unique()->toArray()
-            ]);
-        } else {
-            Log::warning('La orden no tiene productos asociados');
-        }
-        
-        // Preparar los productos para la transmisión
-        $productos = $this->orden->productos->map(function ($producto) {
-            return [
-                'id' => $producto->id,
-                'nombre' => $producto->nombre,
-                'categoria_id' => $producto->categoria_id,
-                'categoria' => [
-                    'id' => $producto->categoria->id,
-                    'nombre' => $producto->categoria->nombre,
-                    'color' => $producto->categoria->color ?? '#888888',
-                ],
-                'precio_unitario' => $producto->pivot->precio_unitario,
-                'cantidad' => $producto->pivot->cantidad,
-                'subtotal' => $producto->pivot->subtotal,
-                'notas' => $producto->pivot->notas,
-            ];
-        });
-        
-        // Crear array con todos los datos necesarios
-        $eventData = [
+        // Asegurar que todos los datos necesarios estén presentes
+        $data = [
             'id' => $this->orden->id,
-            'estado' => $this->orden->estado,
-            'mesa_id' => $this->orden->mesa_id,
-            'mesa' => $this->orden->mesa ? [
-                'id' => $this->orden->mesa->id,
-                'numero' => $this->orden->mesa->numero
-            ] : null,
-            'user_id' => $this->orden->user_id,
-            'user' => $this->orden->user ? [
-                'id' => $this->orden->user->id,
-                'name' => $this->orden->user->name,
-                'role' => $this->orden->user->role
-            ] : null,
             'numero_orden' => $this->orden->numero_orden,
-            'subtotal' => $this->orden->subtotal,
-            'total' => $this->orden->subtotal, // Usando subtotal como total (sin impuestos)
-            'pagado' => (bool)$this->orden->pagado, // Convertir explícitamente a booleano
-            'created_at' => $this->orden->created_at?->toIso8601String(),
-            'updated_at' => $this->orden->updated_at?->toIso8601String(),
-            'productos' => $productos,
+            'estado' => $this->orden->estado,
+            'pagado' => $pagado,
+            'total' => $this->orden->total,
+            'timestamp' => now()->toIso8601String(),
+            'debug_id' => uniqid('debug_'),
+            // Incluimos datos adicionales para propósitos de diagnóstico
+            '_debug' => [
+                'broadcast_driver' => env('BROADCAST_DRIVER'),
+                'app_env' => env('APP_ENV'),
+                'evento' => 'orden.updated',
+                'canal' => 'ordenes',
+                'hora_servidor' => now()->toDateTimeString()
+            ]
         ];
         
-        Log::info('Datos del evento preparados para broadcast', [
-            'orden_id' => $eventData['id'],
-            'tiene_mesa' => isset($eventData['mesa']),
-            'tiene_user' => isset($eventData['user']),
-            'pagado' => $eventData['pagado'] ? 'SI' : 'NO',
-            'productos_count' => count($eventData['productos'])
-        ]);
+        Log::info('OrdenStatusUpdated::broadcastWith - Datos preparados para enviar', array_merge(
+            ['data_length' => count($data)],
+            array_intersect_key($data, array_flip(['id', 'numero_orden', 'estado', 'pagado', 'timestamp', 'debug_id']))
+        ));
         
-        return $eventData;
+        return $data;
     }
 }

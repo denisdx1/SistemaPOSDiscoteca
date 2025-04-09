@@ -95,15 +95,53 @@ export const MovementHistoryTable: React.FC<MovementHistoryTableProps> = ({
         setMovements(response.data.data);
         setTotalPages(Math.ceil(response.data.data.length / perPage));
         setLoading(false);
+      } else if (response.data && Array.isArray(response.data)) {
+        // Si la respuesta es un array directo (posible respuesta para algunos roles)
+        console.log('Detectado formato de respuesta alternativo (array):', response.data);
+        setMovements(response.data);
+        setTotalPages(Math.ceil(response.data.length / perPage));
+        setLoading(false);
+      } else if (response.data && response.data.movimientos) {
+        // Si la respuesta viene en formato de paginación de Laravel
+        console.log('Detectado formato de paginación de Laravel:', response.data.movimientos);
+        setMovements(response.data.movimientos.data || []);
+        setTotalPages(response.data.movimientos.last_page || 1);
+        setLoading(false);
       } else {
-        console.error('Unexpected response format:', response.data);
+        console.error('Formato de respuesta inesperado:', response.data);
         setError('Formato de respuesta inesperado. Revisa la consola para más detalles.');
+        // Para propósitos de depuración, mostrar más información sobre la respuesta
+        console.error('Tipo de datos recibido:', typeof response.data);
+        console.error('Propiedades del objeto:', Object.keys(response.data || {}));
+        console.error('Error probable: El rol de cajero no tiene permiso para ver movimientos de inventario.');
         setMovements([]);
         setLoading(false);
       }
     } catch (err: any) {
       console.error('Error fetching movements:', err);
-      setError('Error al cargar los movimientos: ' + (err.message || 'Desconocido'));
+      // Mejorar el mensaje de error para incluir más detalles
+      let errorMessage = 'Error al cargar los movimientos';
+      
+      if (err.response) {
+        // La solicitud fue realizada y el servidor respondió con un código de estado que no está en el rango 2xx
+        console.error('Error de respuesta:', err.response.data);
+        console.error('Estado HTTP:', err.response.status);
+        
+        if (err.response.status === 403) {
+          errorMessage = 'No tienes permiso para ver los movimientos de inventario. Este módulo está restringido para el rol de cajero.';
+        } else {
+          errorMessage += `: ${err.response.status} - ${err.response.data.message || 'Error en la respuesta del servidor'}`;
+        }
+      } else if (err.request) {
+        // La solicitud fue realizada pero no se recibió respuesta
+        console.error('Error de solicitud:', err.request);
+        errorMessage += ': No se recibió respuesta del servidor';
+      } else {
+        // Ocurrió un error al configurar la solicitud
+        errorMessage += `: ${err.message || 'Error desconocido'}`;
+      }
+      
+      setError(errorMessage);
       setLoading(false);
     }
   };

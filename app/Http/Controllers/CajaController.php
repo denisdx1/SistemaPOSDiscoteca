@@ -13,8 +13,35 @@ class CajaController extends Controller
 {
     public function index()
     {
-        // Obtener estado de todas las cajas
-        $cajas = collect(range(1, 3))->map(function($numeroCaja) {
+        $user = Auth::user();
+        
+        // Determinar qué cajas debe ver el usuario
+        $numerosCajas = [];
+        $cajaAsignadaInfo = null;
+        
+        if ($user->hasRole('administrador')) {
+            // El administrador ve todas las cajas (1, 2 y 3)
+            $numerosCajas = range(1, 3);
+        } elseif ($user->hasRole('cajero') && $user->caja_asignada_id) {
+            // El cajero solo ve su caja asignada
+            $cajaAsignada = Caja::find($user->caja_asignada_id);
+            if ($cajaAsignada) {
+                $numerosCajas = [$cajaAsignada->numero_caja];
+                $cajaAsignadaInfo = [
+                    'id' => $cajaAsignada->id,
+                    'numero_caja' => $cajaAsignada->numero_caja
+                ];
+            }
+        } elseif ($user->hasRole('cajero')) {
+            // Si el cajero no tiene caja asignada específica, aún puede ver todas (comportamiento anterior)
+            $numerosCajas = range(1, 3);
+        } else {
+            // Otros roles no deberían acceder a esta página, pero por si acaso
+            $numerosCajas = range(1, 3);
+        }
+        
+        // Obtener estado de las cajas filtradas
+        $cajas = collect($numerosCajas)->map(function($numeroCaja) {
             $caja = Caja::where('numero_caja', $numeroCaja)
                 ->where('estado', 'abierta')
                 ->first();
@@ -25,7 +52,10 @@ class CajaController extends Controller
                     'id' => $caja->id,
                     'monto_inicial' => floatval($caja->monto_inicial),
                     'fecha_apertura' => $caja->fecha_apertura->format('Y-m-d H:i:s'),
-                    'usuario' => $caja->usuario->name,
+                    'usuario' => [
+                        'id' => $caja->usuario->id,
+                        'name' => $caja->usuario->name
+                    ],
                     'movimientos' => $caja->movimientos()
                         ->orderBy('fecha_movimiento', 'desc')
                         ->get()
@@ -41,8 +71,18 @@ class CajaController extends Controller
             ];
         });
 
+        // Establecer el valor inicial de cajaActual para la vista
+        $cajaActualInicial = 1;
+        if ($user->hasRole('cajero') && $cajaAsignadaInfo) {
+            $cajaActualInicial = $cajaAsignadaInfo['numero_caja'];
+        }
+
         return Inertia::render('caja/operaciones', [
-            'cajas' => $cajas
+            'cajas' => $cajas,
+            'isAdmin' => $user->hasRole('administrador'),
+            'cajaAsignada' => $cajaAsignadaInfo,
+            'cajaActualInicial' => $cajaActualInicial,
+            'userRole' => $user->hasRole('cajero') ? 'cajero' : ($user->hasRole('administrador') ? 'administrador' : $user->role)
         ]);
     }
 
@@ -53,6 +93,19 @@ class CajaController extends Controller
             'monto_inicial' => 'required|numeric|min:0',
             'observaciones' => 'nullable|string'
         ]);
+
+        $user = Auth::user();
+        
+        // Verificar si el usuario tiene permiso para abrir esta caja
+        if ($user->hasRole('cajero') && $user->caja_asignada_id) {
+            $cajaAsignada = Caja::find($user->caja_asignada_id);
+            if ($cajaAsignada && $cajaAsignada->numero_caja != $validated['numero_caja']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "No tienes permiso para abrir la caja #{$validated['numero_caja']}. Solo puedes operar la caja #{$cajaAsignada->numero_caja}."
+                ], 403);
+            }
+        }
 
         // Verificar si la caja específica ya está abierta
         $cajaAbierta = Caja::cajaAbiertaPorNumero($validated['numero_caja']);
@@ -104,6 +157,19 @@ class CajaController extends Controller
         $caja = Caja::where('id', $validated['caja_id'])
             ->where('estado', 'abierta')
             ->firstOrFail();
+            
+        $user = Auth::user();
+        
+        // Verificar si el usuario tiene permiso para cerrar esta caja
+        if ($user->hasRole('cajero') && $user->caja_asignada_id) {
+            $cajaAsignada = Caja::find($user->caja_asignada_id);
+            if ($cajaAsignada && $cajaAsignada->numero_caja != $caja->numero_caja) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "No tienes permiso para cerrar la caja #{$caja->numero_caja}. Solo puedes operar la caja #{$cajaAsignada->numero_caja}."
+                ], 403);
+            }
+        }
 
         try {
             DB::beginTransaction();
@@ -160,6 +226,19 @@ class CajaController extends Controller
         $caja = Caja::where('id', $validated['caja_id'])
             ->where('estado', 'abierta')
             ->firstOrFail();
+            
+        $user = Auth::user();
+        
+        // Verificar si el usuario tiene permiso para registrar movimientos en esta caja
+        if ($user->hasRole('cajero') && $user->caja_asignada_id) {
+            $cajaAsignada = Caja::find($user->caja_asignada_id);
+            if ($cajaAsignada && $cajaAsignada->numero_caja != $caja->numero_caja) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "No tienes permiso para registrar movimientos en la caja #{$caja->numero_caja}. Solo puedes operar la caja #{$cajaAsignada->numero_caja}."
+                ], 403);
+            }
+        }
 
         try {
             DB::beginTransaction();
@@ -196,8 +275,18 @@ class CajaController extends Controller
 
     public function historial(Request $request)
     {
-        $query = Caja::with(['usuario', 'movimientos'])
-            ->orderBy('fecha_apertura', 'desc');
+        $user = Auth::user();
+        $query = Caja::with(['usuario', 'movimientos']);
+        
+        // Filtrar por caja asignada si es un cajero
+        if ($user->hasRole('cajero') && $user->caja_asignada_id) {
+            $cajaAsignada = Caja::find($user->caja_asignada_id);
+            if ($cajaAsignada) {
+                $query->where('numero_caja', $cajaAsignada->numero_caja);
+            }
+        }
+        
+        $query->orderBy('fecha_apertura', 'desc');
 
         // Aplicar filtros
         if ($request->filled('fecha_desde')) {
@@ -234,6 +323,21 @@ class CajaController extends Controller
                 'total_egresos' => $caja->movimientos->where('tipo_movimiento', 'egreso')->sum('monto'),
             ];
         });
+        
+        // Determinar las opciones de cajas disponibles según el rol
+        $numerosCajasDisponibles = [];
+        if ($user->hasRole('administrador')) {
+            $numerosCajasDisponibles = ['all' => 'Todas'] + array_combine(range(1, 3), range(1, 3));
+        } elseif ($user->hasRole('cajero') && $user->caja_asignada_id) {
+            $cajaAsignada = Caja::find($user->caja_asignada_id);
+            if ($cajaAsignada) {
+                $numerosCajasDisponibles = [$cajaAsignada->numero_caja => $cajaAsignada->numero_caja];
+            } else {
+                $numerosCajasDisponibles = ['all' => 'Todas'] + array_combine(range(1, 3), range(1, 3));
+            }
+        } else {
+            $numerosCajasDisponibles = ['all' => 'Todas'] + array_combine(range(1, 3), range(1, 3));
+        }
 
         return Inertia::render('caja/historial', [
             'cajas' => $cajas,
@@ -242,7 +346,8 @@ class CajaController extends Controller
                 'fecha_desde' => $request->input('fecha_desde'),
                 'fecha_hasta' => $request->input('fecha_hasta'),
                 'estado' => $request->input('estado'),
-            ]
+            ],
+            'opciones_cajas' => $numerosCajasDisponibles
         ]);
     }
 }

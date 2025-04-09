@@ -37,11 +37,16 @@ interface Movimiento {
   fecha_movimiento: string;
 }
 
+interface Usuario {
+  id: number;
+  name: string;
+}
+
 interface EstadoCaja {
   id: number;
   monto_inicial: number;
   fecha_apertura: string;
-  usuario: string;
+  usuario: Usuario;
   movimientos: Movimiento[];
 }
 
@@ -50,20 +55,29 @@ interface Caja {
   estado: EstadoCaja | null;
 }
 
-interface PageProps {
-  cajas: Caja[];
+interface CajaAsignada {
+  id: number;
+  numero_caja: number;
 }
 
-export default function OperacionesCaja({ cajas }: PageProps) {
+interface PageProps {
+  cajas: Caja[];
+  isAdmin: boolean;
+  cajaAsignada: CajaAsignada | null;
+  cajaActualInicial: number;
+  userRole: string;
+}
+
+export default function OperacionesCaja({ cajas, isAdmin, cajaAsignada, cajaActualInicial, userRole }: PageProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [cajaActual, setCajaActual] = useState<number>(1);
+  const [cajaActual, setCajaActual] = useState<number>(cajaActualInicial || 1);
   const [paginaActual, setPaginaActual] = useState<number>(1);
   const movimientosPorPagina = 5;
 
   // Estados para el formulario de apertura
   const [formApertura, setFormApertura] = useState({
-    numero_caja: '1',
+    numero_caja: cajaActualInicial?.toString() || '1',
     monto_inicial: '',
     observaciones: ''
   });
@@ -92,6 +106,13 @@ export default function OperacionesCaja({ cajas }: PageProps) {
     referencia: ''
   });
 
+  // Función para actualizar la caja actual y el formulario correspondiente
+  const actualizarCajaActual = (numeroCaja: number) => {
+    setCajaActual(numeroCaja);
+    // Actualizar el número de caja en el formulario de apertura
+    setFormApertura(prev => ({ ...prev, numero_caja: numeroCaja.toString() }));
+  };
+
   useEffect(() => {
     const cajaActiva = cajas.find(c => c.numero === cajaActual)?.estado;
     if (cajaActiva) {
@@ -105,6 +126,11 @@ export default function OperacionesCaja({ cajas }: PageProps) {
     setLoading(true);
 
     try {
+      // Depuración detallada
+      console.log('Estado del formulario:', formApertura);
+      console.log('Caja actual seleccionada:', cajaActual);
+      console.log('Abriendo caja número:', formApertura.numero_caja);
+      
       const response = await axios.post('/caja/abrir', formApertura);
 
       if (response.data.success) {
@@ -116,6 +142,7 @@ export default function OperacionesCaja({ cajas }: PageProps) {
         window.location.reload();
       }
     } catch (error: any) {
+      console.error('Error al abrir caja:', error.response?.data);
       toast({
         title: "Error",
         description: error.response?.data?.message || "Error al abrir la caja",
@@ -294,55 +321,56 @@ export default function OperacionesCaja({ cajas }: PageProps) {
             </p>
           </div>
 
-          {/* Formulario para abrir todas las cajas */}
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle>Abrir todas las cajas</CardTitle>
-              <CardDescription>
-                Abre todas las cajas cerradas con el mismo monto inicial
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleAbrirTodasLasCajas} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="monto_inicial_multiple">Monto Inicial</Label>
-                  <Input
-                    id="monto_inicial_multiple"
-                    type="number"
-                    step="0.01"
-                    required
-                    value={aperturaMultiple.monto_inicial}
-                    onChange={(e) =>
-                      setAperturaMultiple({ ...aperturaMultiple, monto_inicial: e.target.value })
-                    }
-                  />
-                </div>
+          {/* Formulario para abrir todas las cajas - solo visible para administradores */}
+          {isAdmin && (
+            <Card className="w-full">
+              <CardHeader>
+                <CardTitle>Abrir todas las cajas</CardTitle>
+                <CardDescription>
+                  Abre todas las cajas cerradas con el mismo monto inicial
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleAbrirTodasLasCajas} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="monto_inicial_multiple">Monto Inicial</Label>
+                    <Input
+                      id="monto_inicial_multiple"
+                      type="number"
+                      step="0.01"
+                      required
+                      value={aperturaMultiple.monto_inicial}
+                      onChange={(e) =>
+                        setAperturaMultiple({ ...aperturaMultiple, monto_inicial: e.target.value })
+                      }
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="observaciones_multiple">Observaciones</Label>
-                  <Textarea
-                    id="observaciones_multiple"
-                    value={aperturaMultiple.observaciones}
-                    onChange={(e) =>
-                      setAperturaMultiple({ ...aperturaMultiple, observaciones: e.target.value })
-                    }
-                  />
-                </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="observaciones_multiple">Observaciones</Label>
+                    <Textarea
+                      id="observaciones_multiple"
+                      value={aperturaMultiple.observaciones}
+                      onChange={(e) =>
+                        setAperturaMultiple({ ...aperturaMultiple, observaciones: e.target.value })
+                      }
+                    />
+                  </div>
 
-                <Button type="submit" disabled={loadingMultiple} className="w-full">
-                  {loadingMultiple ? 'Abriendo cajas...' : 'Abrir todas las cajas'}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+                  <Button type="submit" disabled={loadingMultiple} className="w-full">
+                    {loadingMultiple ? 'Abriendo cajas...' : 'Abrir todas las cajas'}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          )}
 
-          <Tabs defaultValue="1" className="space-y-6">
+          <Tabs defaultValue="1" value={cajaActual.toString()} onValueChange={(value) => actualizarCajaActual(parseInt(value))} className="space-y-6">
             <TabsList>
               {cajas.map((caja) => (
                 <TabsTrigger
                   key={caja.numero}
                   value={caja.numero.toString()}
-                  onClick={() => setCajaActual(caja.numero)}
                 >
                   Caja #{caja.numero}
                 </TabsTrigger>
@@ -361,15 +389,6 @@ export default function OperacionesCaja({ cajas }: PageProps) {
                     </CardHeader>
                     <CardContent>
                       <form onSubmit={handleAbrirCaja} className="space-y-4">
-                        <input
-                          type="hidden"
-                          name="numero_caja"
-                          value={caja.numero}
-                          onChange={(e) =>
-                            setFormApertura({ ...formApertura, numero_caja: e.target.value })
-                          }
-                        />
-
                         <div className="space-y-2">
                           <Label htmlFor="monto_inicial">Monto Inicial</Label>
                           <Input
@@ -408,7 +427,7 @@ export default function OperacionesCaja({ cajas }: PageProps) {
                         <CardHeader>
                           <CardTitle>Estado de Caja #{caja.numero}</CardTitle>
                           <CardDescription>
-                            Abierta por {caja.estado.usuario} el {caja.estado.fecha_apertura}
+                            Abierta por {caja.estado.usuario.name} el {caja.estado.fecha_apertura}
                           </CardDescription>
                         </CardHeader>
                         <CardContent>

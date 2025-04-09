@@ -32,6 +32,7 @@ interface NuevaOrdenProps {
   mesa?: Mesa;
   categorias: { id: number; nombre: string; color: string }[];
   productos: Producto[];
+  bartenders: { id: number; name: string }[];
 }
 
 // ID de categoría para licores y bebidas (complementos)
@@ -50,7 +51,8 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
   mesaId, 
   mesa, 
   categorias, 
-  productos 
+  productos, 
+  bartenders 
 }) => {
   const { toast } = useToast();
   const [selectedTab, setSelectedTab] = useState('menu');
@@ -58,6 +60,7 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredProductos, setFilteredProductos] = useState<Producto[]>(productos);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ordenesPendientes, setOrdenesPendientes] = useState<Record<number, number>>({});
   
   // Estado para el modal de selección de complementos
   const [showComplementoDialog, setShowComplementoDialog] = useState(false);
@@ -74,11 +77,13 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
   
   const { data, setData, post, processing, errors, reset } = useForm<Orden>({
     mesa_id: initialMesaId,
+    bartender_id: null,
     estado: 'pendiente',
     subtotal: 0,
     total: 0,
     pagado: false,
-    items: []
+    items: [],
+    productos: [] // Agregar la propiedad 'productos' que falta
   });
 
   // Inicializar la mesa si viene preseleccionada
@@ -618,9 +623,11 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
       // Crear el objeto de datos a enviar
       const orderData = {
         mesa_id: data.mesa_id,
+        bartender_id: data.bartender_id,
         items: formattedItems,
         notas: data.notas || '', // Asegurar que notas siempre tenga un valor
-        estado: data.estado || 'pendiente'
+        estado: data.estado || 'pendiente',
+        tipo_orden: 'local' // Añadir el tipo de orden requerido
       };
       
       
@@ -673,6 +680,33 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
       setIsSubmitting(false);
     }
   };
+
+  // Verificar si hay tragos en la lista para mostrar el selector de bartender
+  const esProductoTragosEnLista = (): boolean => {
+    if (!data.items || !Array.isArray(data.items)) return false;
+    
+    return data.items.some(item => 
+      item && item.producto && esProductoTragos(item.producto) && !item.es_complemento_gratuito
+    );
+  };
+
+  // Cargar conteo de órdenes pendientes por bartender
+  useEffect(() => {
+    const cargarOrdenesPendientes = async () => {
+      try {
+        const response = await axios.get('/api/bartenders/conteo-ordenes');
+        if (response.data.success) {
+          setOrdenesPendientes(response.data.conteo || {});
+        }
+      } catch (error) {
+        console.error("Error al cargar conteo de órdenes por bartender:", error);
+      }
+    };
+    
+    if (esProductoTragosEnLista()) {
+      cargarOrdenesPendientes();
+    }
+  }, [data.items]);
 
   return (
     <DashboardLayout>
@@ -762,6 +796,34 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
                   onChange={(e) => setData('notas', e.target.value)}
                 />
               </div>
+
+              {/* Selector de bartender */}
+              {esProductoTragosEnLista() && (
+                <div className="mt-3 sm:mt-4">
+                  <Label htmlFor="bartender" className="block text-sm font-medium mb-1">
+                    Asignar bartender
+                  </Label>
+                  <select
+                    id="bartender"
+                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={data.bartender_id || ''}
+                    onChange={(e) => setData('bartender_id', e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">Seleccionar bartender</option>
+                    {bartenders.map((bartender) => (
+                      <option key={bartender.id} value={bartender.id}>
+                        {bartender.name} 
+                        {ordenesPendientes[bartender.id] !== undefined 
+                          ? ` (${ordenesPendientes[bartender.id]} órdenes pendientes)` 
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.bartender_id && (
+                    <p className="text-sm text-red-500 mt-1">{errors.bartender_id}</p>
+                  )}
+                </div>
+              )}
             </OrdenResumen>
           </div>
         </div>

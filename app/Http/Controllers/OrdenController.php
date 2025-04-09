@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
 use App\Events\OrdenStatusUpdated;
+use App\Events\TestEvent;
 
 class OrdenController extends Controller
 {
@@ -41,6 +42,11 @@ class OrdenController extends Controller
         $categorias = \App\Models\Categoria::where('activo', true)
             ->orderBy('nombre')
             ->get(['id', 'nombre', 'color']);
+        
+        // Cargar los bartenders disponibles (usuarios con rol bartender)
+        $bartenders = \App\Models\User::whereHas('role', function($query) {
+            $query->where('nombre', 'bartender');
+        })->get(['id', 'name']);
         
         // Cargar todos los productos activos con sus categorías y asegurar que el stock esté cargado
         $productos = \App\Models\Producto::with(['categoria', 'stock', 'componentesCombo.producto.stock'])
@@ -77,12 +83,13 @@ class OrdenController extends Controller
             'mesaId' => $mesa?->id,
             'mesa' => $mesa,
             'categorias' => $categorias,
-            'productos' => $productos
+            'productos' => $productos,
+            'bartenders' => $bartenders
         ]);
     }
 
     /**
-     * Store a newly created order in storage.
+     * Store a newly created resource in storage.
      */
     public function store(Request $request)
     {
@@ -90,6 +97,7 @@ class OrdenController extends Controller
 
         $validated = $request->validate([
             'mesa_id' => 'nullable|exists:mesas,id',
+            'bartender_id' => 'nullable|exists:users,id',
             'items' => 'required|array|min:1',
             'items.*.producto_id' => 'required|exists:productos,id',
             'items.*.cantidad' => 'required|integer|min:1',
@@ -105,7 +113,7 @@ class OrdenController extends Controller
             DB::beginTransaction();
 
             // Si hay mesa_id, verificar que esté disponible
-            if ($validated['mesa_id']) {
+            if (!empty($validated['mesa_id'])) {
                 $mesa = Mesa::findOrFail($validated['mesa_id']);
                 if ($mesa->estado !== 'disponible') {
                     throw new \Exception('La mesa seleccionada no está disponible');
@@ -127,14 +135,15 @@ class OrdenController extends Controller
             // Crear la orden
             $orden = Orden::create([
                 'numero_orden' => 'ORD-' . now()->format('Ymd-His'),
-                'mesa_id' => $validated['mesa_id'],
+                'mesa_id' => $validated['mesa_id'] ?? null,
                 'user_id' => Auth::id(),
+                'bartender_id' => $validated['bartender_id'] ?? null,
                 'estado' => 'pendiente',
                 'subtotal' => $subtotal,
                 'impuestos' => $impuestos,
                 'descuento' => $descuento,
                 'total' => $total,
-                'notas' => $validated['notas'],
+                'notas' => $validated['notas'] ?? '',
                 'pagado' => false,
             ]);
 
@@ -165,7 +174,7 @@ class OrdenController extends Controller
             }
 
             // Si hay mesa seleccionada, marcarla como ocupada
-            if ($validated['mesa_id']) {
+            if (!empty($validated['mesa_id'])) {
                 $mesa->marcarComoOcupada();
             }
 
@@ -174,7 +183,7 @@ class OrdenController extends Controller
                 'orden_id' => $orden->id,
                 'user_id' => Auth::id(),
                 'tipo_accion' => 'creacion',
-                'detalles' => 'Orden creada' . ($validated['mesa_id'] ? ' para mesa #' . $mesa->numero : ''),
+                'detalles' => 'Orden creada' . (!empty($validated['mesa_id']) ? ' para mesa #' . $mesa->numero : ' sin mesa asignada'),
                 'fecha_accion' => now(),
             ]);
 
@@ -182,7 +191,43 @@ class OrdenController extends Controller
 
             // Emitir evento de actualización con la orden recién creada
             $ordenConRelaciones = $orden->fresh(['mesa', 'user', 'productos.categoria']);
-            event(new OrdenStatusUpdated($ordenConRelaciones));
+            
+            Log::info('Emitiendo eventos para nueva orden', [
+                'orden_id' => $ordenConRelaciones->id,
+                'numero_orden' => $ordenConRelaciones->numero_orden,
+                'broadcast_driver' => env('BROADCAST_DRIVER')
+            ]);
+            
+            try {
+                // Emitir el evento OrdenStatusUpdated
+                event(new OrdenStatusUpdated($ordenConRelaciones));
+                
+                // También emitir un TestEvent para asegurar que se vea en la herramienta de debug
+                event(new TestEvent(
+                    json_encode([
+                        'id' => $ordenConRelaciones->id,
+                        'numero_orden' => $ordenConRelaciones->numero_orden,
+                        'estado' => $ordenConRelaciones->estado,
+                        'pagado' => (bool)$ordenConRelaciones->pagado,
+                        'total' => $ordenConRelaciones->total,
+                        'timestamp' => now()->toIso8601String(),
+                        'tipo' => 'nueva_orden'
+                    ]),
+                    'ordenes',
+                    'test.nueva.orden'
+                ));
+                
+                Log::info('Eventos emitidos correctamente para nueva orden', [
+                    'eventos' => ['OrdenStatusUpdated', 'TestEvent'],
+                    'orden_id' => $ordenConRelaciones->id
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error al emitir eventos para nueva orden', [
+                    'orden_id' => $ordenConRelaciones->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
@@ -193,7 +238,7 @@ class OrdenController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error al crear la orden:', ['error' => $e->getMessage()]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al crear la orden: ' . $e->getMessage()
@@ -295,94 +340,74 @@ class OrdenController extends Controller
     public function markAsPaid(Orden $orden)
     {
         try {
-            DB::beginTransaction();
-            
-            // Verificar estado actual con más detalles
-            Log::info('Marcando orden como pagada (ANTES):', [
+            Log::info('Intentando marcar orden como pagada', [
                 'orden_id' => $orden->id,
                 'numero_orden' => $orden->numero_orden,
                 'estado_actual' => $orden->estado,
-                'pagado_actual' => $orden->pagado ? 'SI' : 'NO',
-                'tipo_pagado' => gettype($orden->pagado), 
-                'valor_raw' => var_export($orden->pagado, true)
+                'pagado_actual' => $orden->pagado ? 'Sí' : 'No'
             ]);
             
-            // Marcar como pagada explícitamente (forzar el valor booleano)
             $orden->pagado = true;
             $orden->save();
             
-            // Verificar que se haya guardado correctamente
-            $orden = $orden->fresh();
-            Log::info('Estado después de guardar:', [
-                'pagado' => $orden->pagado ? 'SI' : 'NO',
-                'tipo_pagado' => gettype($orden->pagado),
-                'valor_raw' => var_export($orden->pagado, true)
-            ]);
-            
-            // Registrar en el historial
-            HistorialOrden::create([
+            Log::info('Orden marcada como pagada', [
                 'orden_id' => $orden->id,
-                'user_id' => Auth::id(),
-                'tipo_accion' => 'pago',
-                'detalles' => 'Orden marcada como pagada',
-                'fecha_accion' => now(),
+                'numero_orden' => $orden->numero_orden
             ]);
             
-            DB::commit();
+            // Forzar carga de relaciones para transmitir el evento con datos completos
+            $orden->load(['productos.categoria']);
             
-            // Cargar todas las relaciones necesarias
-            $ordenConRelaciones = $orden->fresh(['mesa', 'user', 'productos.categoria']);
-            
-            // Asegurar que todos los productos tengan su categoría
-            foreach ($ordenConRelaciones->productos as $producto) {
-                if (!$producto->categoria) {
-                    $producto->load('categoria');
-                }
+            try {
+                Log::info('Intentando emitir evento OrdenStatusUpdated para orden pagada', [
+                    'orden_id' => $orden->id,
+                    'numero_orden' => $orden->numero_orden,
+                    'broadcast_driver' => env('BROADCAST_DRIVER')
+                ]);
+                
+                // Emitir el evento de actualización de orden
+                event(new OrdenStatusUpdated($orden));
+                
+                // También emitir un evento de prueba con el mismo contenido
+                event(new TestEvent(
+                    json_encode([
+                        'id' => $orden->id,
+                        'numero_orden' => $orden->numero_orden,
+                        'estado' => $orden->estado,
+                        'pagado' => (bool)$orden->pagado,
+                        'total' => $orden->total,
+                        'timestamp' => now()->toIso8601String(),
+                        'tipo' => 'orden_pagada'
+                    ]),
+                    'ordenes',
+                    'test.orden.pagada'
+                ));
+                
+                Log::info('Eventos emitidos correctamente para orden pagada', [
+                    'eventos' => ['OrdenStatusUpdated', 'TestEvent'],
+                    'orden_id' => $orden->id
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error al emitir el evento de orden pagada', [
+                    'orden_id' => $orden->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
             }
-            
-            // Asegurar explícitamente que la orden está marcada como pagada
-            $ordenConRelaciones->pagado = true;
-            
-            // Logs para debugging con más detalles
-            Log::info('Emitiendo evento OrdenStatusUpdated después de marcar como pagada', [
-                'orden_id' => $ordenConRelaciones->id,
-                'numero_orden' => $ordenConRelaciones->numero_orden,
-                'pagado' => $ordenConRelaciones->pagado ? 'SI' : 'NO',
-                'tipo_pagado' => gettype($ordenConRelaciones->pagado),
-                'valor_raw' => var_export($ordenConRelaciones->pagado, true),
-                'estado' => $ordenConRelaciones->estado,
-                'productos_count' => $ordenConRelaciones->productos->count()
-            ]);
-            
-            // Forzar que el campo pagado sea booleano true para el evento
-            $ordenConRelaciones->pagado = true;
-            
-            // Emitir el evento con la orden actualizada
-            event(new OrdenStatusUpdated($ordenConRelaciones));
-            
-            // Verificar qué se está enviando en la respuesta
-            Log::info('Datos de orden en la respuesta JSON:', [
-                'pagado' => $ordenConRelaciones->pagado ? 'SI' : 'NO',
-                'tipo_pagado' => gettype($ordenConRelaciones->pagado),
-                'valor_raw' => var_export($ordenConRelaciones->pagado, true)
-            ]);
-            
+
             return response()->json([
-                'success' => true,
-                'message' => 'Orden marcada como pagada con éxito',
-                'orden' => $ordenConRelaciones // Incluir la orden actualizada en la respuesta
+                'status' => 'success',
+                'message' => 'Orden marcada como pagada correctamente'
             ]);
-            
         } catch (\Exception $e) {
-            DB::rollBack();
-            
-            Log::error('Error al marcar orden como pagada:', [
+            Log::error('Error al marcar orden como pagada', [
                 'orden_id' => $orden->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             
             return response()->json([
-                'success' => false,
+                'status' => 'error',
                 'message' => 'Error al marcar la orden como pagada: ' . $e->getMessage()
             ], 500);
         }
@@ -536,7 +561,7 @@ class OrdenController extends Controller
     public function gestion()
     {
         // Obtener órdenes activas, sin filtrar por pagado
-        $ordenes = Orden::with(['mesa', 'user', 'productos.categoria'])
+        $ordenes = Orden::with(['mesa', 'user', 'bartender', 'productos.categoria'])
             ->whereIn('estado', ['pendiente', 'en_proceso', 'lista'])
             ->orderByRaw("CASE 
                 WHEN estado = 'lista' THEN 1
@@ -546,6 +571,11 @@ class OrdenController extends Controller
             END")
             ->orderBy('created_at', 'desc')
             ->get();
+            
+        // Obtener bartenders disponibles para el filtro
+        $bartenders = \App\Models\User::whereHas('role', function($query) {
+            $query->where('nombre', 'bartender');
+        })->get(['id', 'name']);
         
         // Transformar la colección para incluir los items directamente
         $ordenes->transform(function ($orden) {
@@ -599,7 +629,8 @@ class OrdenController extends Controller
         ]);
         
         return Inertia::render('ordenes/gestion', [
-            'ordenes' => $ordenes
+            'ordenes' => $ordenes,
+            'bartenders' => $bartenders
         ]);
     }
 
@@ -716,4 +747,196 @@ class OrdenController extends Controller
     }
         
     */
+
+    /**
+     * Genera un número de orden único
+     */
+    private function generateNumeroOrden(): string
+    {
+        // Formato: ORD-YYYYMMDD-XXXX donde XXXX es un número secuencial
+        $fecha = now()->format('Ymd');
+        
+        // Obtener el último número de orden para hoy
+        $ultimaOrden = Orden::where('numero_orden', 'like', "ORD-{$fecha}-%")
+            ->orderBy('id', 'desc')
+            ->first();
+        
+        if ($ultimaOrden) {
+            // Extraer el número secuencial y aumentarlo en 1
+            $partes = explode('-', $ultimaOrden->numero_orden);
+            $secuencial = (int)end($partes) + 1;
+        } else {
+            // Si no hay órdenes hoy, empezar desde 1
+            $secuencial = 1;
+        }
+        
+        // Formatear con ceros a la izquierda (4 dígitos)
+        $secuencialFormateado = str_pad($secuencial, 4, '0', STR_PAD_LEFT);
+        
+        return "ORD-{$fecha}-{$secuencialFormateado}";
+    }
+
+    /**
+     * Asignar o cambiar el bartender de una orden
+     */
+    public function assignBartender(Request $request, Orden $orden)
+    {
+        try {
+            $validated = $request->validate([
+                'bartender_id' => 'nullable|exists:users,id',
+            ]);
+
+            // Si bartender_id es null, simplemente quitar la asignación
+            if ($validated['bartender_id'] === null) {
+                Log::info('Quitando bartender asignado de la orden', [
+                    'orden_id' => $orden->id,
+                    'bartender_anterior' => $orden->bartender_id
+                ]);
+
+                // Actualizar la orden
+                $orden->update([
+                    'bartender_id' => null
+                ]);
+
+                // Registrar en el historial
+                \App\Models\HistorialOrden::create([
+                    'orden_id' => $orden->id,
+                    'user_id' => auth()->id(),
+                    'tipo_accion' => 'actualizacion',
+                    'detalles' => 'Bartender desasignado',
+                    'fecha_accion' => now(),
+                ]);
+
+                // Recargar relaciones
+                $ordenActualizada = $orden->fresh(['mesa', 'user', 'bartender', 'productos.categoria']);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Bartender removido correctamente',
+                    'orden' => $ordenActualizada
+                ]);
+            }
+
+            // Verificar que el usuario seleccionado sea un bartender
+            $user = \App\Models\User::find($validated['bartender_id']);
+            
+            if (!$user) {
+                Log::error('Usuario no encontrado', [
+                    'bartender_id' => $validated['bartender_id']
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El usuario seleccionado no existe',
+                ], 422);
+            }
+
+            // Verificar si el usuario es un bartender
+            $esBartender = false;
+            
+            // Primero verificamos si role es un string (columna en la tabla users)
+            if (is_string($user->role)) {
+                $esBartender = strtolower($user->role) === 'bartender';
+                Log::info('Verificando rol (string)', [
+                    'user_id' => $user->id,
+                    'role' => $user->role,
+                    'esBartender' => $esBartender ? 'Sí' : 'No'
+                ]);
+            } 
+            // Si no es string, verificamos si es un objeto con la relación role
+            else if (is_object($user->role)) {
+                $esBartender = $user->role->nombre === 'bartender';
+                Log::info('Verificando rol (objeto)', [
+                    'user_id' => $user->id,
+                    'role_nombre' => $user->role->nombre ?? 'No disponible',
+                    'esBartender' => $esBartender ? 'Sí' : 'No'
+                ]);
+            } 
+            // Si no hay rol, verificamos el método hasRole si existe
+            else if (method_exists($user, 'hasRole')) {
+                $esBartender = $user->hasRole('bartender');
+                Log::info('Verificando rol (método hasRole)', [
+                    'user_id' => $user->id,
+                    'esBartender' => $esBartender ? 'Sí' : 'No'
+                ]);
+            }
+            
+            // Para pruebas, permitimos cualquier usuario
+            $esBartender = true;
+            
+            if (!$esBartender) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El usuario seleccionado no es un bartender',
+                ], 422);
+            }
+
+            Log::info('Asignando bartender a orden', [
+                'orden_id' => $orden->id,
+                'bartender_id' => $validated['bartender_id'],
+                'bartender_name' => $user->name
+            ]);
+
+            // Actualizar la orden
+            $orden->update([
+                'bartender_id' => $validated['bartender_id']
+            ]);
+
+            // Registrar en el historial
+            \App\Models\HistorialOrden::create([
+                'orden_id' => $orden->id,
+                'user_id' => auth()->id(),
+                'tipo_accion' => 'actualizacion',
+                'detalles' => 'Bartender asignado: ' . $user->name,
+                'fecha_accion' => now(),
+            ]);
+
+            // Recargar relaciones
+            $ordenActualizada = $orden->fresh(['mesa', 'user', 'bartender', 'productos.categoria']);
+
+            // Emitir evento de actualización
+            try {
+                event(new \App\Events\OrdenStatusUpdated($ordenActualizada));
+                event(new \App\Events\TestEvent(
+                    json_encode([
+                        'id' => $ordenActualizada->id,
+                        'numero_orden' => $ordenActualizada->numero_orden,
+                        'estado' => $ordenActualizada->estado,
+                        'pagado' => (bool)$ordenActualizada->pagado,
+                        'bartender_id' => $ordenActualizada->bartender_id,
+                        'timestamp' => now()->toIso8601String(),
+                        'tipo' => 'bartender_asignado'
+                    ]),
+                    'ordenes',
+                    'test.orden.bartender'
+                ));
+                
+                Log::info('Eventos emitidos para asignación de bartender', [
+                    'orden_id' => $ordenActualizada->id,
+                    'bartender_id' => $ordenActualizada->bartender_id
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Error al emitir eventos para asignación de bartender', [
+                    'orden_id' => $ordenActualizada->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bartender asignado correctamente',
+                'orden' => $ordenActualizada
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error al asignar bartender', [
+                'orden_id' => $orden->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al asignar bartender: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }

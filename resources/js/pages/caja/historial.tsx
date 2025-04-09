@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import DashboardLayout from '@/layouts/dashboard-layout';
@@ -51,6 +50,10 @@ interface Filtros {
   estado?: string;
 }
 
+interface OpcionesCajas {
+  [key: string]: string;
+}
+
 interface HistorialCajaProps {
   cajas: {
     data: Caja[];
@@ -59,9 +62,10 @@ interface HistorialCajaProps {
     links: { url: string | null; label: string; active: boolean }[];
   };
   filtros: Filtros;
+  opciones_cajas: OpcionesCajas;
 }
 
-export default function HistorialCaja({ cajas, filtros }: HistorialCajaProps) {
+export default function HistorialCaja({ cajas, filtros, opciones_cajas }: HistorialCajaProps) {
   const [filtroActual, setFiltroActual] = useState<Filtros>({
     ...filtros,
     numero_caja: filtros.numero_caja || 'all',
@@ -127,10 +131,11 @@ export default function HistorialCaja({ cajas, filtros }: HistorialCajaProps) {
                       <SelectValue placeholder="Todas las cajas" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">Todas</SelectItem>
-                      <SelectItem value="1">Caja #1</SelectItem>
-                      <SelectItem value="2">Caja #2</SelectItem>
-                      <SelectItem value="3">Caja #3</SelectItem>
+                      {Object.entries(opciones_cajas).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {value === 'all' ? 'Todas' : `Caja #${label}`}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

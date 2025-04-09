@@ -57,6 +57,7 @@ type User = {
   roleName?: string;
   roleDescription?: string;
   role_id?: number;
+  caja_asignada_id?: number | null;
   status: string;
   last_login: string;
   created_at: string;
@@ -68,6 +69,11 @@ type Role = {
   descripcion: string;
 };
 
+type Caja = {
+  id: number;
+  numero_caja: number;
+};
+
 type PageProps = {
   users: {
     data: User[];
@@ -77,9 +83,10 @@ type PageProps = {
     last_page: number;
   };
   roles: Role[];
+  cajas: Caja[];
 };
 
-export default function ListaUsuarios({ users, roles }: PageProps) {
+export default function ListaUsuarios({ users, roles, cajas }: PageProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -92,6 +99,7 @@ export default function ListaUsuarios({ users, roles }: PageProps) {
     email: "",
     role: "cajero",
     role_id: 2, // Default a cajero
+    caja_asignada_id: "", // Campo para caja asignada
     password: "",
     password_confirmation: "",
   });
@@ -102,6 +110,7 @@ export default function ListaUsuarios({ users, roles }: PageProps) {
     email: "",
     role: "",
     role_id: 0,
+    caja_asignada_id: "", // Campo para caja asignada
     password: "",
     password_confirmation: "",
   });
@@ -130,6 +139,7 @@ export default function ListaUsuarios({ users, roles }: PageProps) {
         setCreateData("email", "");
         setCreateData("role", "cajero");
         setCreateData("role_id", 2);
+        setCreateData("caja_asignada_id", "");
         setCreateData("password", "");
         setCreateData("password_confirmation", "");
       },
@@ -146,6 +156,7 @@ export default function ListaUsuarios({ users, roles }: PageProps) {
         setEditData("email", "");
         setEditData("role", "");
         setEditData("role_id", 0);
+        setEditData("caja_asignada_id", "");
         setEditData("password", "");
         setEditData("password_confirmation", "");
       },
@@ -171,6 +182,7 @@ export default function ListaUsuarios({ users, roles }: PageProps) {
       email: user.email,
       role: user.role,
       role_id: user.role_id || 0,
+      caja_asignada_id: user.caja_asignada_id ? String(user.caja_asignada_id) : "",
       password: "",
       password_confirmation: "",
     });
@@ -191,6 +203,11 @@ export default function ListaUsuarios({ users, roles }: PageProps) {
       .join("")
       .toUpperCase()
       .substring(0, 2);
+  };
+
+  // Determinar si mostrar el campo de caja asignada
+  const mostrarCampoAsignacionCaja = (role: string) => {
+    return role === "cajero";
   };
 
   return (
@@ -281,6 +298,33 @@ export default function ListaUsuarios({ users, roles }: PageProps) {
                       {createErrors.role_id && (
                         <p className="text-red-500 text-sm col-span-3 col-start-2">
                           {createErrors.role_id}
+                        </p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="caja_asignada_id" className="text-right">
+                        Caja Asignada
+                      </Label>
+                      <Select
+                        value={createData.caja_asignada_id}
+                        onValueChange={(value) => {
+                          setCreateData("caja_asignada_id", value);
+                        }}
+                      >
+                        <SelectTrigger className="col-span-3 w-full">
+                          <SelectValue placeholder="Seleccionar caja" />
+                        </SelectTrigger>
+                        <SelectContent className="max-w-full">
+                          {cajas.map((caja) => (
+                            <SelectItem key={caja.id} value={caja.id.toString()}>
+                              {caja.numero_caja}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {createErrors.caja_asignada_id && (
+                        <p className="text-red-500 text-sm col-span-3 col-start-2">
+                          {createErrors.caja_asignada_id}
                         </p>
                       )}
                     </div>
@@ -543,6 +587,33 @@ export default function ListaUsuarios({ users, roles }: PageProps) {
                 {editErrors.role_id && (
                   <p className="text-red-500 text-sm col-span-3 col-start-2">
                     {editErrors.role_id}
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit-caja_asignada_id" className="text-right">
+                  Caja Asignada
+                </Label>
+                <Select
+                  value={editData.caja_asignada_id}
+                  onValueChange={(value) => {
+                    setEditData("caja_asignada_id", value);
+                  }}
+                >
+                  <SelectTrigger className="col-span-3 w-full">
+                    <SelectValue placeholder="Seleccionar caja" />
+                  </SelectTrigger>
+                  <SelectContent className="max-w-full">
+                    {cajas.map((caja) => (
+                      <SelectItem key={caja.id} value={caja.id.toString()}>
+                        {caja.numero_caja}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {editErrors.caja_asignada_id && (
+                  <p className="text-red-500 text-sm col-span-3 col-start-2">
+                    {editErrors.caja_asignada_id}
                   </p>
                 )}
               </div>

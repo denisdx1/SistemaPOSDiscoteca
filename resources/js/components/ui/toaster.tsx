@@ -17,7 +17,7 @@ export function Toaster() {
     <ToastProvider>
       {toasts.map((toast) => (
         <Toast key={toast.id} {...toast}>
-          <div className="grid gap-1">
+          <div className="grid gap-0.5">
             {toast.title && <ToastTitle>{toast.title}</ToastTitle>}
             {toast.description && (
               <ToastDescription>{toast.description}</ToastDescription>
