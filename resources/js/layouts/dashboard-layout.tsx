@@ -19,7 +19,8 @@ import {
   LogOutIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  PackageSearchIcon
+  PackageSearchIcon,
+  BarChart2Icon
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -316,6 +317,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 isActive={url === "/inventario"}
                 collapsed={sidebarCollapsed}
               />
+              <SidebarItem
+                icon={getIcon(<ShoppingCartIcon className="h-4 w-4" />, sidebarCollapsed)}
+                label="Reportes"
+                href="/inventario/reportes/stock"
+                isActive={url === "/inventario/reportes/stock"}
+                collapsed={sidebarCollapsed}
+              />
             </SidebarItem>
           )}
           
@@ -339,6 +347,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 label="Historial de Caja"
                 href="/caja/historial"
                 isActive={url === "/caja/historial"}
+                collapsed={sidebarCollapsed}
+              />
+              <SidebarItem
+                icon={getIcon(<BarChart2Icon className="h-4 w-4" />, sidebarCollapsed)}
+                label="Reporte de Tragos por Caja"
+                href="/caja/reportes/ventas-caja"
+                isActive={url === "/caja/reportes/ventas-caja"}
                 collapsed={sidebarCollapsed}
               />
             </SidebarItem>

@@ -35,6 +35,22 @@ class DashboardController extends Controller
             $query->whereColumn('cantidad', '<=', 'stock_minimo');
         })->count();
 
+        // Obtener la lista de productos con stock bajo
+        $listaProductosStockBajo = Producto::with(['stock', 'categoria'])
+            ->whereHas('stock', function($query) {
+                $query->whereColumn('cantidad', '<=', 'stock_minimo');
+            })
+            ->take(5)
+            ->get()
+            ->map(fn($producto) => [
+                'id' => $producto->id,
+                'nombre' => $producto->nombre,
+                'codigo' => $producto->codigo,
+                'stock_actual' => $producto->stock_actual,
+                'stock_minimo' => $producto->stock->stock_minimo,
+                'categoria' => $producto->categoria ? $producto->categoria->nombre : 'Sin categoría',
+            ]);
+
         // 4. Usuarios activos
         $usuariosActivos = User::where('updated_at', '>=', Carbon::now()->subHours(24))->count();
 
@@ -87,6 +103,7 @@ class DashboardController extends Controller
                 'porcentajeCambioVentas' => $porcentajeCambioVentas,
                 'productosVendidosHoy' => $productosVendidosHoy,
                 'productosStockBajo' => $productosStockBajo,
+                'listaProductosStockBajo' => $listaProductosStockBajo,
                 'usuariosActivos' => $usuariosActivos,
                 'ventasRecientes' => $ventasRecientes,
                 'productosMasVendidos' => $productosMasVendidos

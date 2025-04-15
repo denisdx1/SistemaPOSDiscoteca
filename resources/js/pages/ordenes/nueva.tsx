@@ -39,12 +39,12 @@ interface NuevaOrdenProps {
 // Estos valores deben ajustarse según tu base de datos
 
  // Ajusta este ID según tu base de datos
-const CATEGORIA_BEBIDAS_ID = 2; // Ajusta este ID según tu base de datos
+ // Ajusta este ID según tu base de datos
 
 
 // Promoción especial - Precio fijo para 2-3 tragos
 const PROMOCION_PRECIO_FIJO = 10.00; // Precio en soles
-const PROMOCION_MIN_PRODUCTOS = 2;
+const PROMOCION_MIN_PRODUCTOS = 3;
 
 const NuevaOrden: React.FC<NuevaOrdenProps> = ({ 
   mesas, 
@@ -69,21 +69,20 @@ const NuevaOrden: React.FC<NuevaOrdenProps> = ({
   const [complementoCantidad, setComplementoCantidad] = useState(1);
   
   // Filtrar productos de tipo bebida para usar como complementos
-  const complementosDisponibles = productos.filter(p => 
-    p.categoria.id === CATEGORIA_BEBIDAS_ID && Number(p.stock_actual) > 0
-  );
+ 
   
   const initialMesaId = mesaId || (mesa ? mesa.id : null);
   
-  const { data, setData, post, processing, errors, reset } = useForm<Orden>({
-    mesa_id: initialMesaId,
+  const { data, setData, post, processing, errors, reset } = useForm<Orden>('orden', {
+    mesa_id: initialMesaId ? Number(initialMesaId) : null,
     bartender_id: null,
     estado: 'pendiente',
     subtotal: 0,
     total: 0,
     pagado: false,
     items: [],
-    productos: [] // Agregar la propiedad 'productos' que falta
+    productos: [],
+    hora_inicio: false
   });
 
   // Inicializar la mesa si viene preseleccionada

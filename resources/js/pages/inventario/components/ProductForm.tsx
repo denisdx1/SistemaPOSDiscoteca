@@ -54,6 +54,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     precio: '',
     categoria_id: '',
     stock: '',
+    stock_minimo: '',
     activo: true
   });
 
@@ -69,6 +70,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
           precio: productToEdit.precio || '',
           categoria_id: productToEdit.categoria_id ? productToEdit.categoria_id.toString() : '',
           stock: productToEdit.stock_actual ? productToEdit.stock_actual.toString() : '',
+          stock_minimo: productToEdit.stock_minimo ? productToEdit.stock_minimo.toString() : '',
           activo: productToEdit.activo || true
         });
       } else {
@@ -301,6 +303,20 @@ export const ProductForm: React.FC<ProductFormProps> = ({
             />
             {form.errors.stock && (
               <p className="text-sm text-red-500">{form.errors.stock}</p>
+            )}
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="stock_minimo">Stock Mínimo</Label>
+            <Input
+              id="stock_minimo"
+              type="number"
+              value={form.data.stock_minimo}
+              onChange={(e) => form.setData('stock_minimo', e.target.value)}
+              placeholder="Cantidad mínima de stock"
+            />
+            {form.errors.stock_minimo && (
+              <p className="text-sm text-red-500">{form.errors.stock_minimo}</p>
             )}
           </div>
           

@@ -96,6 +96,14 @@ Route::middleware('auth')->group(function () {
             Route::get('/movimientos', [MovimientoInventarioController::class, 'index'])->name('inventario.movimientos');
             Route::post('/movimientos', [MovimientoInventarioController::class, 'store'])->name('inventario.movimientos.store');
         });
+        
+        // Rutas para Reportes de Stock
+        Route::middleware('role:administrador,cajero')->group(function () {
+            Route::get('/reportes/stock', [\App\Http\Controllers\ReporteStockController::class, 'index'])->name('inventario.reportes.stock');
+            Route::post('/reportes/stock/diario', [\App\Http\Controllers\ReporteStockController::class, 'generarReporteDiario'])->name('inventario.reportes.stock.diario');
+            
+           
+        });
     });
 
     // Módulo de Caja - Administrador y Cajero
@@ -105,6 +113,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/cerrar', [CajaController::class, 'cerrarCaja'])->name('caja.cerrar');
         Route::post('/movimiento', [CajaController::class, 'registrarMovimiento'])->name('caja.movimiento');
         Route::get('/historial', [CajaController::class, 'historial'])->name('caja.historial');
+         // Reportes de ventas por caja
+         Route::get('/reportes/ventas-caja', [\App\Http\Controllers\ReporteVentasCajaController::class, 'index'])->name('reportes.ventas-caja');
+         Route::get('/reportes/ventas-caja/generar', [\App\Http\Controllers\ReporteVentasCajaController::class, 'generarReporte'])->name('reportes.ventas-caja.generar');
     });
 
     // Módulo de Ordenes - Administrador, Mesero y Bartender

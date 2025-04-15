@@ -1,5 +1,3 @@
-
-import React from 'react';
 import { Head } from '@inertiajs/react';
 import DashboardLayout from '@/layouts/dashboard-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,8 +8,41 @@ import {
   PackageIcon, 
   UsersIcon,
   TrendingUpIcon,
-  TrendingDownIcon
+  TrendingDownIcon,
+  BarChart3Icon,
+  PieChartIcon,
+  FileSpreadsheetIcon
 } from 'lucide-react';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement,
+  RadialLinearScale,
+  Filler
+} from 'chart.js';
+import { Bar, Pie, Doughnut } from 'react-chartjs-2';
+
+// Registrar los componentes de ChartJS
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement,
+  RadialLinearScale,
+  Filler
+);
 
 interface PageProps {
   estadisticas: {
@@ -20,6 +51,14 @@ interface PageProps {
     productosVendidosHoy: number;
     productosStockBajo: number;
     usuariosActivos: number;
+    listaProductosStockBajo: Array<{
+      id: number;
+      nombre: string;
+      codigo: string;
+      stock_actual: number;
+      stock_minimo: number;
+      categoria: string;
+    }>;
     ventasRecientes: Array<{
       id: number;
       numero_orden: string;
@@ -38,6 +77,85 @@ interface PageProps {
 }
 
 export default function Dashboard({ estadisticas }: PageProps) {
+  // Preparar datos para el gráfico de productos más vendidos
+  const productosChartData = {
+    labels: estadisticas.productosMasVendidos.map(p => p.nombre),
+    datasets: [
+      {
+        label: 'Unidades vendidas',
+        data: estadisticas.productosMasVendidos.map(p => p.total_vendido),
+        backgroundColor: [
+          'rgba(255, 99, 132, 0.7)',
+          'rgba(54, 162, 235, 0.7)',
+          'rgba(255, 206, 86, 0.7)',
+          'rgba(75, 192, 192, 0.7)',
+          'rgba(153, 102, 255, 0.7)',
+        ],
+        borderColor: [
+          'rgba(255, 99, 132, 1)',
+          'rgba(54, 162, 235, 1)',
+          'rgba(255, 206, 86, 1)',
+          'rgba(75, 192, 192, 1)',
+          'rgba(153, 102, 255, 1)',
+        ],
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  // Opciones para el gráfico de productos
+  const productosChartOptions = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'bottom' as const,
+      },
+      title: {
+        display: true,
+        text: 'Productos más vendidos',
+      },
+    },
+  };
+
+  // Datos para gráfico de ventas vs inventario
+  const comparativaData = {
+    labels: ['Productos'],
+    datasets: [
+      {
+        label: 'Vendidos hoy',
+        data: [estadisticas.productosVendidosHoy],
+        backgroundColor: 'rgba(54, 162, 235, 0.7)',
+        borderColor: 'rgba(54, 162, 235, 1)',
+        borderWidth: 1,
+      },
+      {
+        label: 'Stock bajo',
+        data: [estadisticas.productosStockBajo],
+        backgroundColor: 'rgba(255, 99, 132, 0.7)',
+        borderColor: 'rgba(255, 99, 132, 1)',
+        borderWidth: 1,
+      }
+    ],
+  };
+
+  const comparativaOptions = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'bottom' as const,
+      },
+      title: {
+        display: true,
+        text: 'Ventas vs Inventario',
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: true
+      }
+    }
+  };
+
   return (
     <>
       <Head title="Dashboard" />
@@ -120,75 +238,107 @@ export default function Dashboard({ estadisticas }: PageProps) {
             </Card>
           </div>
           
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="col-span-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+            <Card className="col-span-1">
               <CardHeader>
-                <CardTitle>Ventas recientes</CardTitle>
+                <CardTitle>Visualización de ventas</CardTitle>
                 <CardDescription>
-                  Las últimas ventas realizadas en el sistema
+                  Gráfico de barras de los productos más vendidos
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                {estadisticas.ventasRecientes.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground">
-                    No hay ventas registradas
-                  </div>
-                ) : (
-                  <div className="space-y-8">
-                    {estadisticas.ventasRecientes.map((venta) => (
-                      <div key={venta.id} className="flex items-center">
-                        <div className="ml-4 space-y-1">
-                          <p className="text-sm font-medium leading-none">
-                            {venta.numero_orden} - {venta.mesa}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {venta.usuario} - {venta.fecha}
-                          </p>
-                        </div>
-                        <div className="ml-auto font-medium">
-                          {formatCurrency(venta.total)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <CardContent className="h-80">
+                <Bar 
+                  options={productosChartOptions} 
+                  data={productosChartData} 
+                />
               </CardContent>
             </Card>
             
-            <Card className="col-span-3">
+            <Card className="col-span-1">
               <CardHeader>
-                <CardTitle>Productos más vendidos</CardTitle>
+                <CardTitle>Distribución de ventas</CardTitle>
                 <CardDescription>
-                  Top productos por cantidad vendida
+                  Distribución porcentual de productos vendidos
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-80">
+                <Pie 
+                  data={productosChartData} 
+                  options={{
+                    responsive: true,
+                    plugins: {
+                      legend: {
+                        position: 'bottom',
+                      },
+                    }
+                  }} 
+                />
+              </CardContent>
+            </Card>
+
+            <Card >
+              <CardHeader>
+                <CardTitle>Ventas vs Inventario</CardTitle>
+                <CardDescription>
+                  Comparativa entre productos vendidos y stock bajo
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-80">
+                <Bar 
+                  options={comparativaOptions} 
+                  data={comparativaData} 
+                />
+              </CardContent>
+            </Card>
+            
+            <Card className="col-span-2">
+              <CardHeader>
+                <CardTitle>Productos con Stock Bajo</CardTitle>
+                <CardDescription>
+                  Estos productos necesitan reposición
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {estadisticas.productosMasVendidos.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground">
-                    No hay datos disponibles
-                  </div>
-                ) : (
-                  <div className="space-y-8">
-                    {estadisticas.productosMasVendidos.map((producto) => (
-                      <div key={producto.id} className="flex items-center">
-                        <div className="ml-4 space-y-1">
-                          <p className="text-sm font-medium leading-none">
-                            {producto.nombre}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {producto.total_vendido} unidades vendidas
-                          </p>
+                {estadisticas.listaProductosStockBajo.length > 0 ? (
+                  <div className="space-y-4">
+                    {estadisticas.listaProductosStockBajo.map((producto) => (
+                      <div key={producto.id} className="flex items-center justify-between border-b pb-2">
+                        <div>
+                          <p className="font-medium">{producto.nombre}</p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span>Código: {producto.codigo}</span>
+                            <span>•</span>
+                            <span>{producto.categoria}</span>
+                          </div>
                         </div>
-                        <div className="ml-auto font-medium">
-                          {formatCurrency(producto.total_ventas)}
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-red-600">
+                            Stock: {producto.stock_actual} / {producto.stock_minimo}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Se necesitan {Math.max(0, producto.stock_minimo - producto.stock_actual)} unidades
+                          </p>
                         </div>
                       </div>
                     ))}
+                    
+                    <div className="pt-2 text-center">
+                      <a href="/inventario/stock" className="text-sm text-primary hover:underline">
+                        Ver todos los productos con stock bajo →
+                      </a>
+                    </div>
                   </div>
+                ) : (
+                  <p className="text-center text-muted-foreground py-8">
+                    No hay productos con stock bajo en este momento
+                  </p>
                 )}
               </CardContent>
             </Card>
           </div>
+          
+          
+          
         </div>
       </DashboardLayout>
     </>
